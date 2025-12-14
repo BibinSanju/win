@@ -1,28 +1,41 @@
-import { openDB } from "idb";
+import { openDB } from "idb"
+import type { DBSchema, IDBPDatabase } from "idb";
 
-export type Attempt = {
+export type TestType = "pushup" | "plank" | "squat" | "vjump" | "sprint";
+
+export interface Attempt {
   id: string;
-  testType: "pushup" | "plank" | "squat" | "vjump" | "sprint";
-  createdAt: string;
-  verified: boolean;        // false for self-scored (unverified)
-  scoreText?: string;       // manual score like "24 reps" or "62s"
-  video?: Blob;             // recorded clip
+  testType: TestType;
+  createdAt: string; // ISO timestamp
+  verified: boolean; // false = unverified (self-scored)
+  scoreText: string; // e.g., "24 reps" or "62s"
+  video?: Blob;
   mimeType?: string;
   durationMs?: number;
-};
-
-const DB_NAME = "win_db";
-const DB_VERSION = 1;
-
-export async function getDb() {
-  return openDB(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      db.createObjectStore("attempts", { keyPath: "id" });
-    },
-  });
 }
 
-export async function saveAttempt(attempt: Attempt) {
+interface WinDB extends DBSchema {
+  attempts: {
+    key: string;
+    value: Attempt;
+  };
+}
+
+let dbInstance: IDBPDatabase<WinDB> | null = null;
+
+export async function getDb() {
+  if (dbInstance) return dbInstance;
+  dbInstance = await openDB<WinDB>("win_db", 1, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains("attempts")) {
+        db.createObjectStore("attempts", { keyPath: "id" });
+      }
+    },
+  });
+  return dbInstance;
+}
+
+export async function saveAttempt(attempt: Attempt): Promise<void> {
   const db = await getDb();
   await db.put("attempts", attempt);
 }
@@ -30,4 +43,9 @@ export async function saveAttempt(attempt: Attempt) {
 export async function listAttempts(): Promise<Attempt[]> {
   const db = await getDb();
   return db.getAll("attempts");
+}
+
+export async function getAttempt(id: string): Promise<Attempt | undefined> {
+  const db = await getDb();
+  return db.get("attempts", id);
 }

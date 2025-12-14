@@ -1,13 +1,55 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>win</title>
+    <title>WIN - Video Test Platform</title>
   </head>
   <body>
-    <div id="app"></div>
+    <main>
+      <nav>
+        <h1>WIN</h1>
+        <p>Offline-first sports testing platform</p>
+      </nav>
+
+      <section id="test-select">
+        <h2>Select Test</h2>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button data-test="pushup">Push-ups</button>
+          <button data-test="plank">Plank</button>
+          <button data-test="squat">Squats</button>
+          <button data-test="vjump">Vertical Jump</button>
+          <button data-test="sprint">Sprint</button>
+        </div>
+      </section>
+
+      <section id="record-ui" style="display: none;">
+        <h2 id="current-test-title"></h2>
+        <video id="preview" autoplay playsinline muted style="width: 100%; max-width: 640px; background: #000;"></video>
+        
+        <div style="margin-top: 1rem;">
+          <button id="start-camera">Start Camera</button>
+          <button id="start-record" disabled>Start Recording</button>
+          <button id="stop-record" disabled>Stop Recording</button>
+          <button id="back-to-tests">Back</button>
+          <p><small>Max recording time: 1:30</small></p>
+        </div>
+
+        <div id="save-section" style="display: none; margin-top: 1rem;">
+          <label>
+            Score:
+            <input id="score-input" type="text" placeholder="e.g., 24 reps or 45s" />
+          </label>
+          <button id="save-attempt">Save Attempt</button>
+        </div>
+      </section>
+
+      <section id="attempts-list">
+        <h2>My Attempts</h2>
+        <div id="attempts-container"></div>
+      </section>
+    </main>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
