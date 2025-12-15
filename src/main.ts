@@ -14,6 +14,7 @@ let currentTestType: TestType | null = null;
 let recordedVideo: RecordingResult | null = null;
 
 let lastPreviewUrl: string | null = null;
+let cameraFacing: "user" | "environment" = "environment";
 
 const $ = <T extends HTMLElement>(selector: string) =>
   document.querySelector(selector) as T;
@@ -26,6 +27,8 @@ const attemptsContainer = $("#attempts-container");
 // Controls
 const preview = $<HTMLVideoElement>("#preview");
 const startCameraBtn = $<HTMLButtonElement>("#start-camera");
+const flipCameraBtn = $<HTMLButtonElement>("#flip-camera");
+const cameraLabel = $<HTMLElement>("#camera-label");
 const startRecordBtn = $<HTMLButtonElement>("#start-record");
 const stopRecordBtn = $<HTMLButtonElement>("#stop-record");
 const backBtn = $<HTMLButtonElement>("#back-to-tests");
@@ -63,24 +66,74 @@ function openTestRecorder(testType: TestType) {
 
   // buttons initial states
   startCameraBtn.disabled = false;
+  flipCameraBtn.disabled = true
   startRecordBtn.disabled = true;
   stopRecordBtn.disabled = true;
 }
 
+function updateCamLabel() {
+  cameraLabel.textContent =
+    cameraFacing === "environment" ? "Camera: Back" : "Camera: Front";
+}
+
+updateCamLabel();
+
 startCameraBtn.addEventListener("click", async () => {
   try {
-    // If camera was somehow left open, close it first
-    if (currentStream) stopCamera(currentStream);
+    // If camera was left open, close it fully first
+    if (currentStream) {
+      stopCamera(currentStream);     // stops tracks [web:504]
+      currentStream = null;
+      preview.srcObject = null;      // detach stream from <video>
+    }
 
-    currentStream = await startCamera(preview);
+    currentStream = await startCamera(preview, {
+      video: { facingMode: { ideal: cameraFacing } }, // "environment" (back) or "user" (front)
+      audio: false,
+    });
 
     startCameraBtn.disabled = true;
     startRecordBtn.disabled = false;
+
+    // enable flip only before recording
+    flipCameraBtn.disabled = false;
+    updateCamLabel();
   } catch (err) {
     alert("Camera access denied or unavailable.");
     console.error(err);
   }
 });
+
+flipCameraBtn.addEventListener("click", async () => {
+  // Only allow flipping when we are previewing (not recording)
+  if (!currentStream) return;
+  if (currentRecording && currentRecording.recorder.state === "recording") return; // keep disabled anyway
+
+  // Toggle target camera
+  cameraFacing = cameraFacing === "environment" ? "user" : "environment";
+  updateCamLabel();
+
+  try {
+    // Fully stop the old stream and detach from video, so hardware can switch cleanly
+    stopCamera(currentStream);
+    currentStream = null;
+    preview.srcObject = null;
+
+    // Reacquire stream with the new facingMode
+    currentStream = await startCamera(preview, {
+      video: { facingMode: { ideal: cameraFacing } },
+      audio: false,
+    });
+  } catch (err) {
+    // If it fails (device missing front/back), revert the toggle and label
+    cameraFacing = cameraFacing === "environment" ? "user" : "environment";
+    updateCamLabel();
+
+    alert("Could not switch camera on this device/browser.");
+    console.error(err);
+  }
+});
+
 
 startRecordBtn.addEventListener("click", () => {
   if (!currentStream) return;
@@ -117,6 +170,7 @@ startRecordBtn.addEventListener("click", () => {
 
       // UI recovery
       stopRecordBtn.disabled = true;
+      flipCameraBtn.disabled = true;
       startRecordBtn.disabled = false;
       startCameraBtn.disabled = false;
     });
@@ -191,6 +245,9 @@ function resetRecorder() {
   startCameraBtn.disabled = false;
   startRecordBtn.disabled = true;
   stopRecordBtn.disabled = true;
+  flipCameraBtn.disabled = true;
+  updateCamLabel();
+
 
   saveSection.style.display = "none";
   scoreInput.value = "";
