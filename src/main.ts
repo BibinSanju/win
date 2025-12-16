@@ -6,6 +6,11 @@ import type { RecordingController, RecordingResult } from "./recorder";
 import { saveAttempt, listAttempts } from "./db";
 import type { TestType, Attempt } from "./db";
 
+const MAX_MS = 90_000;
+
+let countdownTimer: number | null = null;
+let recordStartedAt = 0;
+
 let currentStream: MediaStream | null = null;
 let currentRecording: RecordingController | null = null;
 let isCancelling = false;
@@ -18,6 +23,8 @@ let cameraFacing: "user" | "environment" = "environment";
 
 const $ = <T extends HTMLElement>(selector: string) =>
   document.querySelector(selector) as T;
+
+const  timeRemainingEl = $<HTMLElement>("#time-remaining");
 
 // UI sections
 const testSelectSection = $("#test-select");
@@ -44,6 +51,24 @@ document.querySelectorAll("[data-test]").forEach((btn) => {
     openTestRecorder(testType);
   });
 });
+
+function formatMs( ms: number){
+  const totalSec = Math.ceil(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function setTimeLeft(msLeft: number) {
+  timeRemainingEl.textContent = `Time left: ${formatMs(msLeft)}`;
+}
+
+function stopCountdown() {
+  if (countdownTimer !== null) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+}
 
 function setPreviewFromBlob(videoEl: HTMLVideoElement, blob: Blob) {
   if (lastPreviewUrl) URL.revokeObjectURL(lastPreviewUrl);
@@ -142,6 +167,18 @@ startRecordBtn.addEventListener("click", () => {
 
   // Start recording immediately, and it will auto-stop at 90s.
   currentRecording = recordVideo(currentStream, 90_000);
+
+  recordStartedAt = Date.now();
+  setTimeLeft(MAX_MS);
+
+  countdownTimer = window.setInterval(() => {
+  const elapsed = Date.now() - recordStartedAt;
+  const left = MAX_MS - elapsed;
+  setTimeLeft(left);
+
+  // when it reaches 0, stop timer (recording auto-stops anyway)
+  if (left <= 0) stopCountdown();
+  }, 250);
 
   startRecordBtn.disabled = true;
   stopRecordBtn.disabled = false;
@@ -257,6 +294,8 @@ function resetRecorder() {
   recordedVideo = null;
   currentRecording = null;
   isCancelling = false;
+  stopCountdown();
+  setTimeLeft(MAX_MS);
 }
 
 async function loadAttempts() {
