@@ -247,9 +247,9 @@ async function syncAccountAndReload(options: { resetLocalCache?: boolean } = {})
   if (!authSession) return;
 
   try {
-    const result = await synchronizeUserData(authSession.user.id, options);
+    await synchronizeUserData(authSession.user.id, options);
     await loadLocalState({ saveDefaultTrainingPlan: true });
-    notice = result.message;
+    notice = "";
     authError = "";
     authMessage = "";
   } catch (errorValue) {
@@ -467,7 +467,7 @@ function renderAppShell(content: string): string {
       </aside>
 
       <main class="workspace">
-        ${notice ? `<div class="notice">${escapeHtml(notice)}</div>` : ""}
+        ${notice ? `<div class="notice"><span>${escapeHtml(notice)}</span><button class="notice-dismiss" type="button" data-dismiss-notice aria-label="Dismiss">✕</button></div>` : ""}
         ${content}
       </main>
       ${renderGuideDrawer()}
@@ -1827,6 +1827,14 @@ function bindAppShell(): void {
       showAuthScreenExplicitly = true;
       authError = "";
       authMessage = "";
+      render();
+    });
+  }
+
+  const dismissNoticeButton = document.querySelector<HTMLButtonElement>("[data-dismiss-notice]");
+  if (dismissNoticeButton) {
+    dismissNoticeButton.addEventListener("click", () => {
+      notice = "";
       render();
     });
   }

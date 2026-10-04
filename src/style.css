@@ -468,6 +468,10 @@ tbody tr:hover {
 }
 
 .notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin-bottom: 1.25rem;
   border: 1px solid var(--accent-soft);
   border-left: 2px solid var(--accent);
@@ -476,6 +480,21 @@ tbody tr:hover {
   color: var(--accent-strong);
   background: var(--accent-soft);
   font-weight: 500;
+}
+
+.notice-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--accent-strong);
+  cursor: pointer;
+  padding: 0 0.25rem;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.notice-dismiss:hover {
+  opacity: 1;
 }
 
 .page-header {
