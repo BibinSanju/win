@@ -1759,7 +1759,7 @@ tbody tr:hover {
     right: 0;
     z-index: 80;
     padding: 0.7rem 0.9rem;
-    background: rgba(18, 18, 18, 0.94);
+    background: rgba(18, 18, 18, 0.95);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border-bottom: 1px solid var(--line);
@@ -1808,13 +1808,6 @@ tbody tr:hover {
     font-size: 0.78rem;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
-  }
-
-  .mobile-profile-pill:hover,
-  .mobile-profile-pill:active {
-    background: var(--surface-2);
-    border-color: var(--accent-dim);
   }
 
   .mobile-avatar-circle {
@@ -1849,10 +1842,6 @@ tbody tr:hover {
     color: var(--text-strong);
     cursor: pointer;
     padding: 0;
-  }
-
-  .mobile-menu-btn:active {
-    background: var(--surface-2);
   }
 
   /* Mobile Fixed Bottom Navigation Bar */
@@ -2046,7 +2035,6 @@ tbody tr:hover {
     border: 1px solid transparent;
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s ease;
   }
 
   .mobile-drawer-link:hover,
@@ -2094,7 +2082,7 @@ tbody tr:hover {
   }
 
   h1 {
-    font-size: 1.5rem !important;
+    font-size: 1.45rem !important;
     line-height: 1.25;
   }
 
@@ -2107,12 +2095,26 @@ tbody tr:hover {
     padding: 2rem 1.25rem;
   }
 
+  /* Page Header on Mobile */
   .page-header {
     display: flex !important;
-    align-items: stretch !important;
     flex-direction: column !important;
+    align-items: stretch !important;
     gap: 0.85rem !important;
     margin-bottom: 1.2rem !important;
+  }
+
+  .page-header:has(.score-gauge) {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 0.75rem !important;
+  }
+
+  .page-header:has(.score-gauge) > div:first-child {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   /* Compact 3-Column Mini Metrics Header */
@@ -2138,6 +2140,96 @@ tbody tr:hover {
 
   .mini-metric-label {
     font-size: 0.68rem !important;
+  }
+
+  /* Compact Proportional Score Gauge on Mobile (Never overlaps text) */
+  .score-gauge {
+    width: 68px !important;
+    height: 68px !important;
+    flex: 0 0 68px !important;
+  }
+
+  .score-gauge::before {
+    inset: 5px !important;
+  }
+
+  .score-gauge strong {
+    font-size: 1.2rem !important;
+    margin-top: 0.1rem !important;
+  }
+
+  .score-gauge span {
+    font-size: 0.58rem !important;
+    margin-top: -0.95rem !important;
+  }
+
+  .score-gauge.gauge-lg {
+    width: 78px !important;
+    height: 78px !important;
+    flex: 0 0 78px !important;
+  }
+
+  .score-gauge.gauge-lg strong {
+    font-size: 1.35rem !important;
+    margin-top: 0.1rem !important;
+  }
+
+  .score-gauge.gauge-lg span {
+    font-size: 0.62rem !important;
+    margin-top: -1rem !important;
+  }
+
+  /* Dashboard Event Cards (Full width on mobile, NEVER side-by-side) */
+  .event-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 1rem !important;
+  }
+
+  .event-card {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    padding: 1.15rem 1rem !important;
+    gap: 0.9rem !important;
+  }
+
+  .event-card-header {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 0.75rem !important;
+    width: 100% !important;
+  }
+
+  .event-card-header > div:first-child {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .event-card-header h2 {
+    font-size: 1.3rem !important;
+    margin: 0.15rem 0 !important;
+    line-height: 1.2 !important;
+  }
+
+  .event-card-header p {
+    font-size: 0.82rem !important;
+    color: var(--text-muted);
+  }
+
+  .event-card-meta {
+    margin-top: 0.45rem !important;
+    gap: 0.4rem !important;
+  }
+
+  /* Personal Records Grid on Mobile */
+  .pr-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
   }
 
   /* Horizontal Scrollable Day Tabs (Replaces 7-button vertical stack) */
@@ -2190,6 +2282,45 @@ tbody tr:hover {
     white-space: nowrap;
   }
 
+  /* Todo Layout (Full width vertical stack: workouts on top, info below) */
+  .todo-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 1rem !important;
+  }
+
+  .todo-main,
+  .todo-side {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 0.85rem !important;
+  }
+
+  .todo-card-header {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.75rem !important;
+    width: 100% !important;
+  }
+
+  .todo-card-header > div:first-child {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .todo-card-header h2 {
+    font-size: 1.25rem !important;
+    margin: 0.15rem 0 !important;
+  }
+
+  .todo-card-header p {
+    font-size: 0.82rem !important;
+  }
+
   /* Todo Row (Checkbox + Exercise label on left, compact Guide pill on right) */
   .todo-row {
     display: grid !important;
@@ -2208,13 +2339,97 @@ tbody tr:hover {
     white-space: nowrap !important;
   }
 
+  /* Tests on Long Jump & Triple Jump (Clean Vertical Flow) */
+  .test-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.85rem !important;
+  }
+
+  .test-row {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    padding: 1rem 0.9rem !important;
+    gap: 0.85rem !important;
+  }
+
+  .test-row-top {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    gap: 0.8rem !important;
+  }
+
+  .test-main {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .test-main h2 {
+    font-size: 1.25rem !important;
+    margin: 0.15rem 0 0.35rem !important;
+  }
+
+  .test-main p {
+    font-size: 0.84rem !important;
+    line-height: 1.4 !important;
+    color: var(--text-muted) !important;
+  }
+
+  .test-stats {
+    min-width: 0 !important;
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.45rem !important;
+  }
+
+  .test-stats .stat-card {
+    padding: 0.55rem 0.5rem !important;
+    min-width: 0 !important;
+  }
+
+  .test-stats .stat-card .stat-value {
+    font-size: 1.1rem !important;
+  }
+
+  .test-stats .stat-card .stat-label {
+    font-size: 0.7rem !important;
+  }
+
+  .test-row-top .primary-action,
+  .test-row .primary-action {
+    width: 100% !important;
+    min-height: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 0.95rem !important;
+    font-weight: 700 !important;
+    margin-top: 0.2rem !important;
+    border-radius: var(--radius) !important;
+  }
+
   /* Grids and Stats (2 columns for neat scannability) */
   .stats-grid,
-  .stats-grid.compact,
-  .test-stats {
+  .stats-grid.compact {
     display: grid !important;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.5rem !important;
+  }
+
+  .video-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .evaluation-layout {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "form"
+      "score"
+      "video" !important;
   }
 
   .input-grid,
@@ -2224,23 +2439,11 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
-  .event-card-header,
-  .test-row-top,
-  .todo-card-header,
   .todo-section-header,
   .guide-header {
     align-items: flex-start;
     flex-direction: column;
     gap: 0.75rem;
-  }
-
-  .test-row-top {
-    align-items: stretch !important;
-  }
-
-  .test-row .primary-action {
-    width: 100% !important;
-    margin-top: 0.35rem;
   }
 
   .section-toggle-summary {
