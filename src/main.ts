@@ -2,6 +2,7 @@ import "./style.css";
 
 import {
   clearLocalAccountCache,
+  deleteCloudEvaluation,
   synchronizeUserData,
   upsertCloudEvaluation,
   upsertCloudProfile,
@@ -10,6 +11,7 @@ import {
   upsertCloudTrainingPlan,
 } from "./cloudSync";
 import {
+  deleteEvaluation,
   getProfile,
   getTrainingPlan,
   listAttempts,
@@ -33,9 +35,10 @@ import {
   formatScore,
   formatZScore,
   getEventTests,
+  getRankForScore,
   getTestDefinition,
 } from "./scoring";
-import type { TestCalculation, TestDefinition } from "./scoring";
+import type { RankStatus, TestDefinition } from "./scoring";
 import {
   countPlanItems,
   createDefaultTrainingPlan,
@@ -63,6 +66,7 @@ type ViewId = "dashboard" | "todo" | EventType | "comparison" | "videos" | "prof
 interface ActiveEvaluation {
   eventType: EventType;
   testId: string;
+  recordId?: string;
   video: RecordingResult | null;
 }
 
@@ -97,6 +101,7 @@ let guideEditMode = false;
 let selectedWeek = 1;
 let selectedDayId = findCurrentDayId();
 let notice = "";
+let showAuthScreenExplicitly = false;
 
 let currentStream: MediaStream | null = null;
 let currentRecording: RecordingController | null = null;
@@ -107,15 +112,111 @@ let recordStartedAt = 0;
 let isCancellingRecording = false;
 let renderedVideoUrls: string[] = [];
 
+function generateDemoEvaluations(): EvaluationRecord[] {
+  const now = new Date();
+  const recs: EvaluationRecord[] = [];
+  let i = 0;
+
+  const add = (
+    eventType: EventType,
+    testId: string,
+    inputs: Record<string, number>,
+    daysAgo: number
+  ) => {
+    const def = getTestDefinition(eventType, testId);
+    if (!def) return;
+    const calcResult = def.calculate(inputs);
+    recs.push({
+      id: `demo-${i++}`,
+      eventType,
+      testId,
+      createdAt: new Date(now.getTime() - daysAgo * 86_400_000).toISOString(),
+      inputs,
+      resultValue: calcResult.value,
+      resultUnit: calcResult.unit,
+      score: calcResult.score,
+      zScore: calcResult.zScore,
+      rating: calcResult.rating,
+    });
+  };
+
+  // ── Long Jump demos ──
+  add("long-jump", "cmj", { standingReachCm: 220, jumpTouchCm: 305 }, 2);
+  add("long-jump", "standing-broad", { bestDistanceCm: 265 }, 3);
+  add("long-jump", "sprint-30m", { timeSec: 4.12 }, 1);
+  add("long-jump", "five-stride-lj", { distanceM: 5.10 }, 4);
+  add("long-jump", "takeoff-accuracy", { averageMissCm: 4.2 }, 5);
+  add("long-jump", "standing-triple", { distanceM: 8.20 }, 6);
+  add("long-jump", "five-bound", { distanceM: 13.80 }, 7);
+
+  // Older long-jump attempts for progression
+  add("long-jump", "cmj", { standingReachCm: 218, jumpTouchCm: 295 }, 25);
+  add("long-jump", "standing-broad", { bestDistanceCm: 250 }, 22);
+  add("long-jump", "sprint-30m", { timeSec: 4.35 }, 20);
+  add("long-jump", "five-stride-lj", { distanceM: 4.70 }, 18);
+
+  // ── Triple Jump demos ──
+  add("triple-jump", "cmj", { standingReachCm: 220, jumpTouchCm: 305 }, 2);
+  add("triple-jump", "standing-triple", { distanceM: 9.10 }, 3);
+  add("triple-jump", "single-leg-hop", { leftHopCm: 180, rightHopCm: 175 }, 4);
+  add("triple-jump", "sprint-30m", { timeSec: 4.12 }, 1);
+  add("triple-jump", "phase-balance", { hopM: 5.10, stepM: 4.30, jumpM: 5.00 }, 5);
+  add("triple-jump", "five-bound", { distanceM: 14.50 }, 6);
+  add("triple-jump", "hop-step-ratio", { hopM: 5.10, stepM: 4.30 }, 7);
+
+  // Older triple-jump attempts
+  add("triple-jump", "standing-triple", { distanceM: 8.40 }, 21);
+  add("triple-jump", "phase-balance", { hopM: 4.80, stepM: 3.90, jumpM: 4.50 }, 19);
+  add("triple-jump", "sprint-30m", { timeSec: 4.30 }, 17);
+
+  return recs;
+}
+
+async function loadDemoData(): Promise<void> {
+  const demoProfile: AthleteProfile = {
+    id: "local-athlete",
+    username: "alex_jumper",
+    dob: "2002-05-14",
+    events: ["long-jump", "triple-jump"],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await saveProfile(demoProfile);
+  profile = demoProfile;
+
+  const defaultPlan = trainingPlan ?? createDefaultTrainingPlan();
+  await saveTrainingPlan(defaultPlan);
+  trainingPlan = defaultPlan;
+
+  const demoRecs = generateDemoEvaluations();
+  for (const rec of demoRecs) {
+    await saveEvaluation(rec);
+  }
+  evaluations = await listEvaluations();
+  showAuthScreenExplicitly = false;
+  activeView = "dashboard";
+  notice = "Demo athlete loaded with sample long jump and triple jump records.";
+  render();
+}
+
 void init();
 
 async function init(): Promise<void> {
   if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase.auth.getSession();
-    if (error) {
-      authError = error.message;
+    try {
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise<{ data: { session: null }; error: Error }>((_, reject) =>
+        setTimeout(() => reject(new Error("Supabase auth timeout")), 2000)
+      );
+      const { data, error } = await Promise.race([sessionPromise, timeoutPromise]);
+      if (error) {
+        authError = error.message;
+      }
+      authSession = data?.session ?? null;
+    } catch {
+      console.warn("Supabase connection bypassed (unreachable or paused). Continuing in offline-capable mode.");
+      authSession = null;
     }
-    authSession = data.session;
   }
 
   await loadLocalState({ saveDefaultTrainingPlan: false });
@@ -161,12 +262,7 @@ async function syncAccountAndReload(options: { resetLocalCache?: boolean } = {})
 function render(): void {
   cleanupRenderedVideoUrls();
 
-  if (!isSupabaseConfigured) {
-    app.innerHTML = renderSupabaseSetupRequired();
-    return;
-  }
-
-  if (!authSession) {
+  if (showAuthScreenExplicitly || (!authSession && !profile)) {
     app.innerHTML = renderAuthScreen();
     bindAuthScreen();
     return;
@@ -182,7 +278,6 @@ function render(): void {
     app.innerHTML = renderAppShell(renderEvaluationView(activeEvaluation));
     bindAppShell();
     bindEvaluationView(activeEvaluation);
-    updateLiveScore(activeEvaluation);
     updateRecorderUi("No video evidence attached.");
     return;
   }
@@ -206,25 +301,7 @@ function render(): void {
   }
 }
 
-function renderSupabaseSetupRequired(): string {
-  return `
-    <main class="onboarding-shell auth-shell">
-      <section class="onboarding-copy">
-        <p class="eyebrow">WIN account setup</p>
-        <h1>Supabase login is required.</h1>
-        <p class="lead">Add your Supabase URL and anon key to the local environment before using account sync. WIN no longer creates local-only athlete accounts.</p>
-      </section>
 
-      <section class="onboarding-form auth-form">
-        <div>
-          <p class="eyebrow">Missing environment</p>
-          <h2>Configure Supabase</h2>
-        </div>
-        <p class="auth-help">Create a local <strong>.env</strong> file with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then restart the dev server.</p>
-      </section>
-    </main>
-  `;
-}
 
 function renderAuthScreen(): string {
   const isSignUp = authMode === "sign-up";
@@ -254,14 +331,14 @@ function renderAuthScreen(): string {
   return `
     <main class="onboarding-shell auth-shell">
       <section class="onboarding-copy">
-        <p class="eyebrow">WIN cloud sync</p>
-        <h1>Your jumper data follows your account.</h1>
-        <p class="lead">Create an account with a username, birth date, and events. Supabase is the source of truth across devices; videos stay local for now.</p>
+        <p class="eyebrow">WIN Jumper Lab</p>
+        <h1>Track power, technique, and progress.</h1>
+        <p class="lead">Sign in to sync your data across devices, or continue offline on this device. Videos always remain securely stored locally.</p>
       </section>
 
       <form class="onboarding-form auth-form" id="auth-form" novalidate>
         <div>
-          <p class="eyebrow">Supabase login</p>
+          <p class="eyebrow">Supabase Cloud</p>
           <h2>${title}</h2>
         </div>
 
@@ -284,6 +361,17 @@ function renderAuthScreen(): string {
         <button class="ghost-action" type="button" data-auth-mode="${isSignUp ? "sign-in" : "sign-up"}" ${authBusy ? "disabled" : ""}>
           ${swapLabel}
         </button>
+
+        <div class="auth-divider"><span>OR CONTINUE OFFLINE</span></div>
+
+        <div class="offline-options">
+          <button class="ghost-action" type="button" data-offline-mode>
+            ${profile ? "Return to Local Profile" : "Continue as Guest Athlete"}
+          </button>
+          <button class="ghost-action" type="button" data-load-demo>
+            Load Sample Athlete & Demo Data
+          </button>
+        </div>
       </form>
     </main>
   `;
@@ -295,12 +383,16 @@ function renderOnboarding(): string {
       <section class="onboarding-copy">
         <p class="eyebrow">WIN account setup</p>
         <h1>Jumper evaluation, built for field testing.</h1>
-        <p class="lead">Finish your account profile. This creates the Supabase profile used on every device.</p>
+        <p class="lead">${
+          authSession
+            ? "Finish your account profile. This creates the Supabase profile used on every device."
+            : "Set up your local athlete profile. All data is saved directly on your device in IndexedDB."
+        }</p>
       </section>
 
       <form class="onboarding-form" id="onboarding-form" novalidate>
         <div>
-          <p class="eyebrow">Account profile</p>
+          <p class="eyebrow">${authSession ? "Account profile" : "Local athlete"}</p>
           <h2>Set up jumper</h2>
         </div>
 
@@ -322,10 +414,12 @@ function renderOnboarding(): string {
 
         <p class="form-error" id="onboarding-error" role="alert"></p>
         <button class="primary-action" type="submit">Create profile</button>
+        <button class="ghost-action" type="button" data-back-to-auth>Back to cloud sign in</button>
       </form>
     </main>
   `;
 }
+
 
 function renderEventChoice(eventType: EventType, checked: boolean): string {
   return `
@@ -420,13 +514,14 @@ function renderDashboard(): string {
   const videosCount =
     evaluations.filter((record) => Boolean(record.video)).length +
     legacyAttempts.filter((attempt) => Boolean(attempt.video)).length;
+  const records = renderPersonalRecords();
 
   return `
     <section class="page-header">
       <div>
         <p class="eyebrow">Dashboard</p>
         <h1>@${escapeHtml(profile.username)}</h1>
-        <p class="lead">Latest event ratings, test coverage, and statistical direction.</p>
+        <p class="lead">Latest event ranks, test coverage, and statistical direction.</p>
       </div>
       <div class="header-metrics">
         ${renderMiniMetric("Evaluations", String(evaluations.length))}
@@ -435,8 +530,67 @@ function renderDashboard(): string {
       </div>
     </section>
 
+    ${records}
+
     <section class="event-grid">
       ${eventCards}
+    </section>
+  `;
+}
+
+function renderPersonalRecords(): string {
+  const allTests = profile
+    ? profile.events.flatMap((eventType) =>
+        getEventTests(eventType).map((test) => ({ eventType, test }))
+      )
+    : [];
+
+  const records = allTests
+    .map(({ eventType, test }) => {
+      const stats = calculateTestStats(recordsForTest(eventType, test.id));
+      if (!stats.bestScore) return null;
+      const rank = getRankForScore(stats.bestScore);
+      const latest = stats.latest;
+      const isCurrentBest =
+        latest && stats.bestScore === latest.score && stats.count > 0;
+      return { eventType, test, stats, rank, isCurrentBest };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .sort((a, b) => (b.stats.bestScore ?? 0) - (a.stats.bestScore ?? 0))
+    .slice(0, 6);
+
+  if (records.length === 0) {
+    return `
+      <section class="event-overview" style="margin-bottom:1.25rem">
+        <div class="form-heading">
+          <p class="eyebrow">Personal records</p>
+          <h2 style="margin-bottom:0.3rem">No records yet</h2>
+          <span>Log an evaluation to start tracking personal bests.</span>
+        </div>
+      </section>
+    `;
+  }
+
+  const cards = records
+    .map((entry) => {
+      return `
+        <div class="pr-card">
+          <p class="eyebrow">${EVENT_LABELS[entry.eventType]}</p>
+          <strong>${entry.test.shortTitle}</strong>
+          <div class="pr-score">${entry.stats.bestScore}<span>/100</span></div>
+          <div>${renderRankChip(entry.rank)}</div>
+          ${entry.isCurrentBest ? `<small class="pr-flag">current best</small>` : `<small class="muted">${entry.stats.count} logged</small>`}
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <section class="pr-strip">
+      <span class="section-label">Personal records</span>
+      <div class="pr-grid">
+        ${cards}
+      </div>
     </section>
   `;
 }
@@ -444,8 +598,14 @@ function renderDashboard(): string {
 function renderEventCard(eventType: EventType): string {
   const summary = calculateEventSummary(eventType, evaluations);
   const score = summary.score;
+  const rank = getRankForScore(score);
   const strengths = renderContributionList(summary.strengths, "No strengths yet");
   const gaps = renderContributionList(summary.gaps, "No gaps yet");
+  const ratingLabel = summary.rating ?? "No data";
+  const completenessLine =
+    summary.totalTests > 0
+      ? `${summary.completedTests}/${summary.totalTests} tests logged`
+      : "No tests logged yet";
 
   return `
     <article class="event-card">
@@ -454,16 +614,15 @@ function renderEventCard(eventType: EventType): string {
           <p class="eyebrow">${summary.completeness === 100 ? "Complete rating" : "Provisional rating"}</p>
           <h2>${EVENT_LABELS[eventType]}</h2>
           <p>${EVENT_KICKERS[eventType]}</p>
+          <div class="event-card-meta">
+            ${renderRankChip(rank)}
+            <span class="rank-progress-label-inline" style="color:var(--text-muted);font-size:0.82rem">${escapeHtml(ratingLabel)} · ${completenessLine}</span>
+          </div>
         </div>
-        ${renderScoreGauge(score)}
+        ${renderScoreGauge(score, true)}
       </div>
 
-      <div class="stats-grid compact">
-        ${renderStat("Score", formatScore(score))}
-        ${renderStat("z-score", formatZScore(summary.zScore))}
-        ${renderStat("Coverage", `${summary.completeness}%`)}
-        ${renderStat("Rating", summary.rating ?? "No data")}
-      </div>
+      ${renderRankProgress(rank)}
 
       <div class="split-summary">
         <div>
@@ -768,6 +927,7 @@ function renderGuideList(title: string, values: string[], ordered = false): stri
 
 function renderEventView(eventType: EventType): string {
   const summary = calculateEventSummary(eventType, evaluations);
+  const rank = getRankForScore(summary.score);
   const tests = getEventTests(eventType)
     .map((test) => renderTestRow(eventType, test))
     .join("");
@@ -778,12 +938,17 @@ function renderEventView(eventType: EventType): string {
         <p class="eyebrow">Event evaluation</p>
         <h1>${EVENT_LABELS[eventType]}</h1>
         <p class="lead">${EVENT_KICKERS[eventType]}</p>
+        <div class="event-card-meta">
+          ${renderRankChip(rank)}
+          <span style="color:var(--text-muted);font-size:0.84rem">${summary.completedTests}/${summary.totalTests} tests logged</span>
+        </div>
       </div>
-      ${renderScoreGauge(summary.score)}
+      ${renderScoreGauge(summary.score, true)}
     </section>
 
     <section class="event-overview">
-      <div class="stats-grid">
+      ${renderRankProgress(rank)}
+      <div class="stats-grid" style="margin-top:1rem">
         ${renderStat("Composite score", formatScore(summary.score))}
         ${renderStat("Weighted z-score", formatZScore(summary.zScore))}
         ${renderStat("Completeness", `${summary.completeness}%`)}
@@ -801,29 +966,109 @@ function renderTestRow(eventType: EventType, test: TestDefinition): string {
   const records = recordsForTest(eventType, test.id);
   const stats = calculateTestStats(records);
   const latest = stats.latest;
+  const rank = getRankForScore(latest ? latest.score : null);
 
   return `
     <article class="test-row">
-      <div class="test-main">
-        <div>
-          <p class="eyebrow">${test.weight}% event weight</p>
-          <h2>${test.title}</h2>
-          <p>${test.description}</p>
+      <div class="test-row-top">
+        <div class="test-main">
+          <div>
+            <p class="eyebrow">${test.weight}% event weight</p>
+            <h2>${test.title}</h2>
+            <p>${test.description}</p>
+          </div>
         </div>
-      </div>
 
-      <div class="test-stats">
-        ${renderStat("Latest", latest ? `${latest.resultValue} ${latest.resultUnit}` : "-")}
-        ${renderStat("Score", latest ? String(latest.score) : "-")}
-        ${renderStat("z-score", latest ? formatZScore(latest.zScore) : "-")}
-        ${renderStat("Trend", formatDelta(stats.rollingTrend))}
-      </div>
+        <div class="test-stats">
+          ${renderStat("Latest", latest ? `${latest.resultValue} ${latest.resultUnit}` : "-")}
+          ${renderStat("Score", latest ? String(latest.score) : "-")}
+          ${renderStat("z-score", latest ? formatZScore(latest.zScore) : "-")}
+          ${renderStat("Trend", formatDelta(stats.rollingTrend))}
+        </div>
 
-      <button class="primary-action narrow" type="button" data-evaluate-event="${eventType}" data-evaluate-test="${test.id}">
-        Evaluate
-      </button>
+        <button class="primary-action narrow" type="button" data-evaluate-event="${eventType}" data-evaluate-test="${test.id}">
+          Evaluate
+        </button>
+      </div>
+      ${latest ? `<div style="margin-top:0.85rem">${renderRankProgress(rank)}</div>` : ""}
     </article>
   `;
+}
+
+function renderEvaluationRankingPanel(active: ActiveEvaluation, test: TestDefinition): string {
+  const records = recordsForTest(active.eventType, active.testId);
+
+  if (records.length === 0) {
+    return `
+      <aside class="ranking-panel">
+        <div class="form-heading">
+          <p class="eyebrow">Ranking</p>
+          <h2>Saved attempts</h2>
+          <span>No saved evaluations for this test yet.</span>
+        </div>
+        <p class="rank-empty">Save this evaluation to start building a ranked history for ${escapeHtml(test.shortTitle)}.</p>
+      </aside>
+    `;
+  }
+
+  const rows = rankEvaluationRecords(records)
+    .map((record, index) => {
+      const recordId = escapeAttribute(record.id);
+      const isCurrent = record.id === active.recordId;
+      const attemptRank = getRankForScore(record.score);
+
+      return `
+        <div class="ranking-row ${isCurrent ? "is-current" : ""}">
+          <span class="rank-badge">#${index + 1}</span>
+          <div class="ranking-body">
+            <div class="ranking-row-top">
+              <div>
+                <strong>${record.score}/100</strong>
+                <small>${formatDateTime(record.createdAt)}${record.video ? " | video" : ""}</small>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:0.35rem;align-items:flex-end">
+                ${isCurrent ? `<span class="rank-status">Editing</span>` : ""}
+                ${renderRankChip(attemptRank)}
+              </div>
+            </div>
+
+            <div class="ranking-meta">
+              <span>${record.resultValue} ${escapeHtml(record.resultUnit)}</span>
+              <span>z ${formatZScore(record.zScore)}</span>
+              <span>${escapeHtml(record.rating)}</span>
+            </div>
+
+            <div class="ranking-actions">
+              <button class="ghost-action compact-action" type="button" data-edit-evaluation="${recordId}">Edit</button>
+              <button class="danger-action compact-action" type="button" data-delete-evaluation="${recordId}">Delete</button>
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <aside class="ranking-panel" aria-label="${escapeAttribute(test.shortTitle)} saved attempt ranking">
+      <div class="form-heading">
+        <p class="eyebrow">Ranking</p>
+        <h2>Saved attempts</h2>
+        <span>Ranked by statistical score, then z-score.</span>
+      </div>
+
+      <div class="ranking-list">
+        ${rows}
+      </div>
+    </aside>
+  `;
+}
+
+function rankEvaluationRecords(records: EvaluationRecord[]): EvaluationRecord[] {
+  return [...records].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.zScore !== a.zScore) return b.zScore - a.zScore;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
 }
 
 function renderEvaluationView(active: ActiveEvaluation): string {
@@ -839,9 +1084,13 @@ function renderEvaluationView(active: ActiveEvaluation): string {
     `;
   }
 
+  const existingRecord = active.recordId
+    ? evaluations.find((record) => record.id === active.recordId)
+    : null;
   const inputFields = test.inputs
-    .map(
-      (input) => `
+    .map((input) => {
+      const existingValue = existingRecord?.inputs[input.id];
+      return `
         <label class="field">
           <span>${input.label}</span>
           <div class="input-unit">
@@ -853,20 +1102,25 @@ function renderEvaluationView(active: ActiveEvaluation): string {
               step="${input.step}"
               placeholder="${input.placeholder}"
               inputmode="decimal"
+              value="${Number.isFinite(existingValue) ? String(existingValue) : ""}"
             />
             <small>${input.unit}</small>
           </div>
         </label>
-      `
-    )
+      `;
+    })
     .join("");
 
   return `
     <section class="page-header">
       <div>
-        <p class="eyebrow">${EVENT_LABELS[active.eventType]}</p>
+        <p class="eyebrow">${active.recordId ? "Edit evaluation" : EVENT_LABELS[active.eventType]}</p>
         <h1>${test.title}</h1>
-        <p class="lead">${test.description}</p>
+        <p class="lead">${
+          existingRecord
+            ? `Saved ${formatDateTime(existingRecord.createdAt)}. Edits update this evaluation, not a new one.`
+            : test.description
+        }</p>
       </div>
       <button class="ghost-action" type="button" data-back-to-event="${active.eventType}">Back</button>
     </section>
@@ -886,14 +1140,12 @@ function renderEvaluationView(active: ActiveEvaluation): string {
         <p class="form-error" id="evaluation-error" role="alert"></p>
 
         <div class="action-row">
-          <button class="primary-action" type="submit">Save evaluation</button>
+          <button class="primary-action" type="submit">${active.recordId ? "Update evaluation" : "Save evaluation"}</button>
           <button class="ghost-action" type="button" data-back-to-event="${active.eventType}">Cancel</button>
         </div>
       </form>
 
-      <aside class="score-panel" id="live-score">
-        ${renderLiveScorePlaceholder()}
-      </aside>
+      ${renderEvaluationRankingPanel(active, test)}
 
       ${renderRecorderPanel(active)}
     </section>
@@ -955,6 +1207,7 @@ function renderComparisonView(): string {
             <th>Event</th>
             <th>Test</th>
             <th>Latest</th>
+            <th>Rank</th>
             <th>Best</th>
             <th>Average</th>
             <th>SD</th>
@@ -964,7 +1217,7 @@ function renderComparisonView(): string {
           </tr>
         </thead>
         <tbody>
-          ${rows || `<tr><td colspan="9">No evaluations saved yet.</td></tr>`}
+          ${rows || `<tr><td colspan="10">No evaluations saved yet.</td></tr>`}
         </tbody>
       </table>
     </section>
@@ -973,12 +1226,14 @@ function renderComparisonView(): string {
 
 function renderComparisonRow(eventType: EventType, test: TestDefinition): string {
   const stats = calculateTestStats(recordsForTest(eventType, test.id));
+  const rank = getRankForScore(stats.latest ? stats.latest.score : null);
 
   return `
     <tr>
       <td>${EVENT_LABELS[eventType]}</td>
       <td>${test.shortTitle}</td>
       <td>${stats.latest ? stats.latest.score : "-"}</td>
+      <td>${renderRankChip(rank)}</td>
       <td>${stats.bestScore ?? "-"}</td>
       <td>${stats.averageScore ?? "-"}</td>
       <td>${stats.standardDeviation ?? "-"}</td>
@@ -1102,13 +1357,52 @@ function renderStat(label: string, value: string): string {
   `;
 }
 
-function renderScoreGauge(score: number | null): string {
+function renderScoreGauge(score: number | null, large = false): string {
   const display = formatScore(score);
   const gaugeValue = score ?? 0;
+  const rank = getRankForScore(score);
+  const tierClass = rank ? `gauge-${rank.tier.id}` : "gauge-bronze";
+  const sizeClass = large ? " gauge-lg" : "";
   return `
-    <div class="score-gauge" style="--score:${gaugeValue}">
+    <div class="score-gauge ${tierClass}${sizeClass}" style="--score:${gaugeValue}">
       <strong>${display}</strong>
       <span>/100</span>
+    </div>
+  `;
+}
+
+function tierColorClass(rank: RankStatus | null): string {
+  return rank ? `tier-${rank.tier.id}` : "";
+}
+
+function renderRankChip(rank: RankStatus | null): string {
+  if (!rank) {
+    return `<span class="rank-chip rank-empty">Unranked</span>`;
+  }
+  return `<span class="rank-chip ${tierColorClass(rank)}">${escapeHtml(rank.tier.label)}</span>`;
+}
+
+function renderRankProgress(rank: RankStatus | null): string {
+  if (!rank) {
+    return `<p class="muted" style="margin:0;font-size:0.82rem">Log a test to earn a rank.</p>`;
+  }
+
+  if (!rank.nextTier || rank.pointsToNext === null) {
+    return `
+      <div class="rank-progress ${tierColorClass(rank)}">
+        <div class="rank-progress-track"><div class="rank-progress-fill" style="width:100%"></div></div>
+        <div class="rank-progress-label"><strong>Top tier reached</strong><span>${rank.tier.label}</span></div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="rank-progress ${tierColorClass(rank)}">
+      <div class="rank-progress-track"><div class="rank-progress-fill" style="width:${rank.progressPct}%"></div></div>
+      <div class="rank-progress-label">
+        <strong>${rank.pointsToNext} pts to ${escapeHtml(rank.nextTier.label)}</strong>
+        <span>${rank.tier.label}</span>
+      </div>
     </div>
   `;
 }
@@ -1130,36 +1424,6 @@ function renderContributionList(items: ReturnType<typeof calculateEventSummary>[
   `;
 }
 
-function renderLiveScorePlaceholder(): string {
-  return `
-    <div class="score-panel-empty">
-      <p class="eyebrow">Live score</p>
-      <h2>Enter measurements</h2>
-      <p>Score, z-score, rating, and event contribution update before saving.</p>
-    </div>
-  `;
-}
-
-function renderLiveScore(test: TestDefinition, result: TestCalculation): string {
-  return `
-    <div class="live-score-grid">
-      ${renderScoreGauge(result.score)}
-      <div>
-        <p class="eyebrow">Statistical output</p>
-        <h2>${result.score}/100</h2>
-        <p>${result.rating}</p>
-      </div>
-    </div>
-    <div class="stats-grid compact">
-      ${renderStat(test.resultLabel, `${result.value} ${result.unit}`)}
-      ${renderStat("z-score", formatZScore(result.zScore))}
-      ${renderStat("Event weight", `${test.weight}%`)}
-      ${renderStat("Benchmark", test.benchmarkLabel)}
-    </div>
-    <p class="score-detail">${escapeHtml(result.detail)}</p>
-  `;
-}
-
 function bindAuthScreen(): void {
   qsa<HTMLButtonElement>("[data-auth-mode]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1170,6 +1434,25 @@ function bindAuthScreen(): void {
     });
   });
 
+  const offlineButton = document.querySelector<HTMLButtonElement>("[data-offline-mode]");
+  if (offlineButton) {
+    offlineButton.addEventListener("click", () => {
+      showAuthScreenExplicitly = false;
+      if (profile) {
+        activeView = "dashboard";
+        notice = "Continuing in offline mode.";
+      }
+      render();
+    });
+  }
+
+  const demoButton = document.querySelector<HTMLButtonElement>("[data-load-demo]");
+  if (demoButton) {
+    demoButton.addEventListener("click", () => {
+      void loadDemoData();
+    });
+  }
+
   qs<HTMLFormElement>("#auth-form").addEventListener("submit", (event) => {
     event.preventDefault();
     void submitAuthForm(qs<HTMLFormElement>("#auth-form"));
@@ -1177,7 +1460,11 @@ function bindAuthScreen(): void {
 }
 
 async function submitAuthForm(form: HTMLFormElement): Promise<void> {
-  if (!supabase) return;
+  if (!supabase) {
+    authError = "Supabase is not configured. You can continue offline.";
+    render();
+    return;
+  }
 
   const email = qs<HTMLInputElement>("#auth-email", form).value.trim();
   const password = qs<HTMLInputElement>("#auth-password", form).value;
@@ -1233,6 +1520,7 @@ async function submitAuthForm(form: HTMLFormElement): Promise<void> {
             password,
             options: newProfile
               ? {
+                  emailRedirectTo: getAuthRedirectUrl(),
                   data: {
                     username: newProfile.username,
                     dob: newProfile.dob,
@@ -1268,14 +1556,24 @@ async function submitAuthForm(form: HTMLFormElement): Promise<void> {
     }
 
     authSession = result.data.session;
+    showAuthScreenExplicitly = false;
     activeView = "dashboard";
     await syncAccountAndReload({ resetLocalCache: true });
   } catch (errorValue) {
-    authError = errorValue instanceof Error ? errorValue.message : "Authentication failed.";
+    const rawMsg = errorValue instanceof Error ? errorValue.message : "Authentication failed.";
+    if (rawMsg.toLowerCase().includes("failed to fetch") || rawMsg.toLowerCase().includes("network")) {
+      authError = "Cloud service unreachable (Supabase may be paused or offline). You can continue offline below.";
+    } else {
+      authError = rawMsg;
+    }
   } finally {
     authBusy = false;
     render();
   }
+}
+
+function getAuthRedirectUrl(): string {
+  return `${window.location.origin}/`;
 }
 
 function bindTodoView(): void {
@@ -1371,13 +1669,10 @@ async function saveTodoCheckbox(checkbox: HTMLInputElement): Promise<void> {
     updatedAt: now,
   };
 
-  const cloudOk = await saveCloudFirst("todo progress", () =>
-    upsertCloudTodoProgress(authSession!.user.id, progress)
-  );
-  if (!cloudOk) {
-    notice = "Todo update was not saved. Cloud sync failed.";
-    render();
-    return;
+  if (authSession) {
+    void saveCloudFirst("todo progress", () =>
+      upsertCloudTodoProgress(authSession!.user.id, progress)
+    );
   }
 
   await saveTodoProgress(progress);
@@ -1428,18 +1723,19 @@ async function saveGuideEdit(form: HTMLFormElement): Promise<void> {
     updatedAt: new Date().toISOString(),
   };
 
-  const cloudOk = await saveCloudFirst("training plan guide", () =>
-    upsertCloudTrainingPlan(authSession!.user.id, nextPlan)
-  );
-  if (!cloudOk) {
-    error.textContent = "Guide was not saved. Cloud sync failed.";
-    return;
+  if (authSession) {
+    const cloudOk = await saveCloudFirst("training plan guide", () =>
+      upsertCloudTrainingPlan(authSession!.user.id, nextPlan)
+    );
+    if (!cloudOk) {
+      console.warn("Could not sync guide to cloud, saved locally.");
+    }
   }
 
   trainingPlan = nextPlan;
   await saveTrainingPlan(trainingPlan);
   guideEditMode = false;
-  notice = `${updatedGuide.title} guide updated and synced.`;
+  notice = `${updatedGuide.title} guide updated ${authSession ? "and synced" : "locally"}.`;
   render();
 }
 
@@ -1447,32 +1743,37 @@ async function importMarkdownPlan(file: File): Promise<void> {
   if (!trainingPlan) return;
   const markdown = await file.text();
   const nextPlan = parseMarkdownChecklist(markdown, trainingPlan);
-  const cloudOk = await saveCloudFirst("imported training plan", () =>
-    upsertCloudTrainingPlan(authSession!.user.id, nextPlan)
-  );
-  if (!cloudOk) {
-    notice = "Markdown plan was not imported. Cloud sync failed.";
-    render();
-    return;
+
+  if (authSession) {
+    const cloudOk = await saveCloudFirst("imported training plan", () =>
+      upsertCloudTrainingPlan(authSession!.user.id, nextPlan)
+    );
+    if (!cloudOk) {
+      console.warn("Cloud sync for imported plan failed, saved locally.");
+    }
   }
 
   trainingPlan = nextPlan;
   await saveTrainingPlan(trainingPlan);
   todoProgress = await listTodoProgress(trainingPlan.id);
-  notice = "Markdown plan imported and synced. Known exercises were linked to how-to guides.";
+  notice = `Markdown plan imported ${authSession ? "and synced" : "locally"}. Known exercises were linked to how-to guides.`;
   render();
 }
 
 function bindOnboarding(): void {
-  qs<HTMLFormElement>("#onboarding-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const form = qs<HTMLFormElement>("#onboarding-form");
-    const error = qs<HTMLElement>("#onboarding-error");
+  const form = qs<HTMLFormElement>("#onboarding-form");
+  const backBtn = form.querySelector<HTMLButtonElement>("[data-back-to-auth]");
+  if (backBtn) {
+    backBtn.addEventListener("click", () => {
+      showAuthScreenExplicitly = true;
+      render();
+    });
+  }
 
-    if (!authSession) {
-      error.textContent = "Sign in before creating an account profile.";
-      return;
-    }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const error = qs<HTMLElement>("#onboarding-error", form);
+    error.textContent = "";
 
     const parsedProfile = readAccountProfileForm(form);
     if (parsedProfile.error) {
@@ -1490,22 +1791,25 @@ function bindOnboarding(): void {
       updatedAt: now,
     };
 
-    try {
-      await upsertCloudProfile(authSession.user.id, nextProfile);
+    const nextPlan = trainingPlan ?? createDefaultTrainingPlan();
 
-      const nextPlan = trainingPlan ?? createDefaultTrainingPlan();
-      await upsertCloudTrainingPlan(authSession.user.id, nextPlan);
-      await saveProfile(nextProfile);
-      await saveTrainingPlan(nextPlan);
-
-      profile = nextProfile;
-      trainingPlan = nextPlan;
-      notice = "Account profile created and synced.";
-      activeView = "dashboard";
-      render();
-    } catch (errorValue) {
-      error.textContent = formatCloudError(errorValue, "Could not create the account profile.");
+    if (authSession) {
+      try {
+        await upsertCloudProfile(authSession.user.id, nextProfile);
+        await upsertCloudTrainingPlan(authSession.user.id, nextPlan);
+      } catch (errorValue) {
+        console.warn("Could not sync profile to cloud:", errorValue);
+      }
     }
+
+    await saveProfile(nextProfile);
+    await saveTrainingPlan(nextPlan);
+
+    profile = nextProfile;
+    trainingPlan = nextPlan;
+    notice = authSession ? "Account profile created and synced." : "Local athlete profile created.";
+    activeView = "dashboard";
+    render();
   });
 }
 
@@ -1514,6 +1818,16 @@ function bindAppShell(): void {
   if (signOutButton) {
     signOutButton.addEventListener("click", () => {
       void signOut();
+    });
+  }
+
+  const switchAuthButton = document.querySelector<HTMLButtonElement>("[data-switch-auth]");
+  if (switchAuthButton) {
+    switchAuthButton.addEventListener("click", () => {
+      showAuthScreenExplicitly = true;
+      authError = "";
+      authMessage = "";
+      render();
     });
   }
 
@@ -1536,6 +1850,22 @@ function bindAppShell(): void {
       const testId = button.dataset.evaluateTest;
       if (!eventType || !testId) return;
       openEvaluation(eventType, testId);
+    });
+  });
+
+  qsa<HTMLButtonElement>("[data-edit-evaluation]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = evaluations.find((evaluation) => evaluation.id === button.dataset.editEvaluation);
+      if (!record) return;
+      openEvaluation(record.eventType, record.testId, record.id);
+    });
+  });
+
+  qsa<HTMLButtonElement>("[data-delete-evaluation]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const record = evaluations.find((evaluation) => evaluation.id === button.dataset.deleteEvaluation);
+      if (!record) return;
+      void deleteSavedEvaluation(record);
     });
   });
 
@@ -1587,7 +1917,10 @@ async function saveCloudFirst(label: string, action: () => Promise<void>): Promi
 
 function bindEvaluationView(active: ActiveEvaluation): void {
   const form = qs<HTMLFormElement>("#evaluation-form");
-  form.addEventListener("input", () => updateLiveScore(active));
+  form.addEventListener("input", () => {
+    const error = document.querySelector<HTMLElement>("#evaluation-error");
+    if (error) error.textContent = "";
+  });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     void saveCurrentEvaluation(active);
@@ -1630,30 +1963,58 @@ function bindProfileView(): void {
       updatedAt: new Date().toISOString(),
     };
 
-    try {
-      await upsertCloudProfile(authSession!.user.id, nextProfile);
-    } catch (errorValue) {
-      error.textContent = formatCloudError(errorValue, "Profile was not saved.");
-      return;
+    if (authSession) {
+      try {
+        await upsertCloudProfile(authSession.user.id, nextProfile);
+      } catch (errorValue) {
+        console.warn("Could not sync profile to cloud:", errorValue);
+      }
     }
 
     profile = nextProfile;
     await saveProfile(profile);
     activeView = "dashboard";
-    notice = "Profile updated and synced.";
+    notice = authSession ? "Profile updated and synced." : "Profile updated locally.";
     render();
   });
 }
 
-function openEvaluation(eventType: EventType, testId: string): void {
+function openEvaluation(eventType: EventType, testId: string, recordId?: string): void {
+  const existingRecord = recordId
+    ? evaluations.find((record) => record.id === recordId)
+    : undefined;
+
   resetRecorderSession();
   activeView = eventType;
   activeEvaluation = {
     eventType,
     testId,
-    video: null,
+    recordId,
+    video: existingRecord?.video ?? null,
   };
   notice = "";
+  render();
+}
+
+async function deleteSavedEvaluation(record: EvaluationRecord): Promise<void> {
+  const test = getTestDefinition(record.eventType, record.testId);
+  const ok = window.confirm(
+    `Delete ${test?.shortTitle ?? record.testId} from ${formatDateTime(record.createdAt)}? This cannot be undone.`
+  );
+  if (!ok) return;
+
+  if (authSession) {
+    const cloudOk = await saveCloudFirst("delete evaluation", () =>
+      deleteCloudEvaluation(authSession!.user.id, record.id)
+    );
+    if (!cloudOk) {
+      console.warn("Could not delete from cloud, proceeding with local delete.");
+    }
+  }
+
+  await deleteEvaluation(record.id);
+  evaluations = await listEvaluations();
+  notice = `${test?.shortTitle ?? "Evaluation"} deleted.`;
   render();
 }
 
@@ -1671,11 +2032,14 @@ async function saveCurrentEvaluation(active: ActiveEvaluation): Promise<void> {
 
   try {
     const result = test.calculate(parsed.values);
+    const existingRecord = active.recordId
+      ? evaluations.find((record) => record.id === active.recordId)
+      : undefined;
     const record: EvaluationRecord = {
-      id: crypto.randomUUID(),
+      id: existingRecord?.id ?? crypto.randomUUID(),
       eventType: active.eventType,
       testId: active.testId,
-      createdAt: new Date().toISOString(),
+      createdAt: existingRecord?.createdAt ?? new Date().toISOString(),
       inputs: parsed.values,
       resultValue: result.value,
       resultUnit: result.unit,
@@ -1691,47 +2055,29 @@ async function saveCurrentEvaluation(active: ActiveEvaluation): Promise<void> {
         : undefined,
     };
 
-    const cloudOk = await saveCloudFirst("evaluation", () =>
-      upsertCloudEvaluation(authSession!.user.id, record)
-    );
-    if (!cloudOk) {
-      error.textContent = "Evaluation was not saved. Cloud sync failed.";
-      return;
+    if (authSession) {
+      const cloudOk = await saveCloudFirst("evaluation", () =>
+        upsertCloudEvaluation(authSession!.user.id, record)
+      );
+      if (!cloudOk) {
+        await saveEvaluation(record);
+        evaluations = await listEvaluations();
+        resetActiveEvaluation();
+        activeView = record.eventType;
+        notice = `${test.shortTitle} ${existingRecord ? "updated" : "saved"} locally (cloud sync unavailable).`;
+        render();
+        return;
+      }
     }
 
     await saveEvaluation(record);
     evaluations = await listEvaluations();
     resetActiveEvaluation();
     activeView = record.eventType;
-    notice = `${test.shortTitle} saved and synced: ${record.score}/100, z ${formatZScore(record.zScore)}.`;
+    notice = `${test.shortTitle} ${existingRecord ? "updated" : "saved"} ${authSession ? "and synced" : "locally"}: ${record.score}/100, z ${formatZScore(record.zScore)}.`;
     render();
   } catch (errorValue) {
     error.textContent = errorValue instanceof Error ? errorValue.message : "Could not calculate score.";
-  }
-}
-
-function updateLiveScore(active: ActiveEvaluation): void {
-  const test = getTestDefinition(active.eventType, active.testId);
-  const scorePanel = document.querySelector<HTMLElement>("#live-score");
-  const error = document.querySelector<HTMLElement>("#evaluation-error");
-  if (!test || !scorePanel) return;
-
-  const parsed = readEvaluationInputs(test, false);
-
-  if (error) error.textContent = parsed.error ?? "";
-
-  if (!parsed.complete || parsed.error) {
-    scorePanel.innerHTML = renderLiveScorePlaceholder();
-    return;
-  }
-
-  try {
-    scorePanel.innerHTML = renderLiveScore(test, test.calculate(parsed.values));
-  } catch (errorValue) {
-    scorePanel.innerHTML = renderLiveScorePlaceholder();
-    if (error) {
-      error.textContent = errorValue instanceof Error ? errorValue.message : "Could not calculate score.";
-    }
   }
 }
 
@@ -1968,13 +2314,10 @@ async function toggleTodoSection(sectionId: string): Promise<void> {
     updatedAt: new Date().toISOString(),
   };
 
-  const cloudOk = await saveCloudFirst("todo section preference", () =>
-    upsertCloudTodoSectionPreference(authSession!.user.id, preference)
-  );
-  if (!cloudOk) {
-    notice = "Section state was not saved. Cloud sync failed.";
-    render();
-    return;
+  if (authSession) {
+    void saveCloudFirst("todo section preference", () =>
+      upsertCloudTodoSectionPreference(authSession!.user.id, preference)
+    );
   }
 
   await saveTodoSectionPreference(preference);
@@ -2150,6 +2493,16 @@ function formatMs(ms: number): string {
   const minutes = Math.floor(totalSec / 60);
   const seconds = totalSec % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function qs<T extends HTMLElement>(selector: string, root: ParentNode = document): T {

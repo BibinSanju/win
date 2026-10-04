@@ -99,6 +99,11 @@ export async function saveEvaluation(record: EvaluationRecord): Promise<void> {
   await db.put("evaluations", record);
 }
 
+export async function deleteEvaluation(id: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("evaluations", id);
+}
+
 export async function listEvaluations(): Promise<EvaluationRecord[]> {
   const db = await getDb();
   const records = await db.getAll("evaluations");

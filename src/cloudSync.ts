@@ -177,6 +177,16 @@ export async function upsertCloudEvaluation(
   if (error) throw error;
 }
 
+export async function deleteCloudEvaluation(userId: string, evaluationId: string): Promise<void> {
+  ensureSupabase();
+  const { error } = await supabase!
+    .from("evaluations")
+    .delete()
+    .eq("user_id", userId)
+    .eq("id", evaluationId);
+  if (error) throw error;
+}
+
 export async function upsertCloudTrainingPlan(
   userId: string,
   plan: TrainingPlanTemplate

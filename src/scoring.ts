@@ -137,6 +137,52 @@ function ratingForScore(score: number): RatingLabel {
   return "Needs focus";
 }
 
+export type RankTierId = "bronze" | "silver" | "gold" | "elite";
+
+export interface RankTier {
+  id: RankTierId;
+  label: string;
+  floor: number;
+  ceil: number | null;
+}
+
+export interface RankStatus {
+  tier: RankTier;
+  nextTier: RankTier | null;
+  pointsToNext: number | null;
+  progressPct: number;
+}
+
+// Bronze <55 · Silver 55-69 · Gold 70-84 · Elite 85+
+export const RANK_TIERS: RankTier[] = [
+  { id: "bronze", label: "Bronze", floor: 0, ceil: 55 },
+  { id: "silver", label: "Silver", floor: 55, ceil: 70 },
+  { id: "gold", label: "Gold", floor: 70, ceil: 85 },
+  { id: "elite", label: "Elite", floor: 85, ceil: null },
+];
+
+export function getRankForScore(score: number | null): RankStatus | null {
+  if (score === null || !Number.isFinite(score)) return null;
+  const clamped = clamp(Math.round(score), 0, 100);
+
+  let tierIndex = RANK_TIERS.findIndex((tier) => tier.ceil !== null && clamped < tier.ceil);
+  if (tierIndex === -1) tierIndex = RANK_TIERS.length - 1;
+
+  const tier = RANK_TIERS[tierIndex];
+  const nextTier = RANK_TIERS[tierIndex + 1] ?? null;
+
+  if (!nextTier || tier.ceil === null) {
+    return { tier, nextTier: null, pointsToNext: null, progressPct: 100 };
+  }
+
+  const span = tier.ceil - tier.floor;
+  const through = clamped - tier.floor;
+  const progressPct = span > 0 ? clamp(Math.round((through / span) * 100), 0, 100) : 0;
+  const pointsToNext = tier.ceil - clamped;
+
+  return { tier, nextTier, pointsToNext, progressPct };
+}
+
 function ensurePositive(value: number, message: string): void {
   if (value <= 0) throw new Error(message);
 }
@@ -312,6 +358,62 @@ function calculatePhaseBalance(inputs: Record<string, number>): TestCalculation 
   };
 }
 
+// 5-Bound for Distance (Chamari 5JT): standing start, five alternating
+// forward bounds, reactive / elastic horizontal power. Best of two trials.
+function calculateFiveBound(inputs: Record<string, number>): TestCalculation {
+  const value = Math.round(inputs.distanceM * 100) / 100;
+  const result = benchmarkScore(value, {
+    floor: 9,
+    target: 16,
+    higherIsBetter: true,
+  });
+
+  return {
+    value,
+    unit: "m",
+    score: result.score,
+    zScore: result.zScore,
+    rating: ratingForScore(result.score),
+    detail: "Best five alternating bounds from a standing two-foot start.",
+  };
+}
+
+// Hop-to-step ratio for triple jump: rewards keeping the step phase close to
+// the ideal 30% share. A low step phase is the most common technical leak.
+function calculateHopStepRatio(inputs: Record<string, number>): TestCalculation {
+  const hop = inputs.hopM;
+  const step = inputs.stepM;
+  ensurePositive(hop, "Hop distance must be greater than zero.");
+  ensurePositive(step, "Step distance must be greater than zero.");
+  const total = hop + step;
+  const hopRatio = (hop / total) * 100;
+  const stepRatio = (step / total) * 100;
+  // Ideal triple rhythm is ~35/30/35 across hop/step/jump; across the first
+  // two phases that maps to ~54/46 hop-vs-step. Reward staying near it.
+  const ratioError = roundOne(Math.abs(hopRatio - 54) + Math.abs(stepRatio - 46));
+  const lengthResult = benchmarkScore(hop + step, {
+    floor: 5.5,
+    target: 9.5,
+    higherIsBetter: true,
+  });
+  const ratioResult = benchmarkScore(ratioError, {
+    floor: 30,
+    target: 0,
+    higherIsBetter: false,
+  });
+  const score = Math.round(lengthResult.score * 0.6 + ratioResult.score * 0.4);
+  const zScore = roundOne(lengthResult.zScore * 0.6 + ratioResult.zScore * 0.4);
+
+  return {
+    value: ratioError,
+    unit: "pts",
+    score,
+    zScore,
+    rating: ratingForScore(score),
+    detail: `Step phase holds ${stepRatio.toFixed(0)}% of hop+step (${ratioError} pts off ideal).`,
+  };
+}
+
 const cmjInputs: TestInputDefinition[] = [
   {
     id: "standingReachCm",
@@ -340,7 +442,7 @@ export const TEST_DEFINITIONS: TestDefinition[] = [
     title: "Countermovement Jump",
     shortTitle: "CMJ",
     description: "Vertical power from a standing reach and jump touch mark.",
-    weight: 25,
+    weight: 15,
     resultLabel: "Jump height",
     benchmarkLabel: "20-60 cm",
     inputs: cmjInputs,
@@ -352,7 +454,7 @@ export const TEST_DEFINITIONS: TestDefinition[] = [
     title: "Standing Broad Jump",
     shortTitle: "Broad jump",
     description: "Horizontal explosive power using best measured distance.",
-    weight: 20,
+    weight: 15,
     resultLabel: "Best distance",
     benchmarkLabel: "150-300 cm",
     inputs: [
@@ -374,7 +476,7 @@ export const TEST_DEFINITIONS: TestDefinition[] = [
     title: "30m Sprint",
     shortTitle: "30m sprint",
     description: "Acceleration profile from a stopwatch time.",
-    weight: 25,
+    weight: 15,
     resultLabel: "Time",
     benchmarkLabel: "5.20-3.80 sec",
     inputs: [
@@ -435,12 +537,57 @@ export const TEST_DEFINITIONS: TestDefinition[] = [
     calculate: calculateTakeoffAccuracy,
   },
   {
+    id: "standing-triple",
+    eventType: "long-jump",
+    title: "Standing Triple Jump",
+    shortTitle: "Standing TJ",
+    description: "Hop-step-jump from a standing start; transfers to approach power.",
+    weight: 10,
+    resultLabel: "Total distance",
+    benchmarkLabel: "5.5-10.5 m",
+    inputs: [
+      {
+        id: "distanceM",
+        label: "Total distance",
+        unit: "m",
+        min: 2,
+        max: 15,
+        step: "0.01",
+        placeholder: "8.40",
+      },
+    ],
+    calculate: calculateStandingTripleJump,
+  },
+  {
+    id: "five-bound",
+    eventType: "long-jump",
+    title: "5-Bound for Distance",
+    shortTitle: "5 bounds",
+    description:
+      "Five alternating bounds from a standing two-foot start (Chamari 5JT). Reactive elastic power.",
+    weight: 15,
+    resultLabel: "Total distance",
+    benchmarkLabel: "9-16 m",
+    inputs: [
+      {
+        id: "distanceM",
+        label: "Total distance",
+        unit: "m",
+        min: 3,
+        max: 22,
+        step: "0.01",
+        placeholder: "12.80",
+      },
+    ],
+    calculate: calculateFiveBound,
+  },
+  {
     id: "cmj",
     eventType: "triple-jump",
     title: "Countermovement Jump",
     shortTitle: "CMJ",
     description: "Vertical power from a standing reach and jump touch mark.",
-    weight: 15,
+    weight: 12,
     resultLabel: "Jump height",
     benchmarkLabel: "20-60 cm",
     inputs: cmjInputs,
@@ -452,7 +599,7 @@ export const TEST_DEFINITIONS: TestDefinition[] = [
     title: "Standing Triple Jump",
     shortTitle: "Standing TJ",
     description: "Hop-step-jump distance from a standing start.",
-    weight: 25,
+    weight: 20,
     resultLabel: "Total distance",
     benchmarkLabel: "5.5-10.5 m",
     inputs: [
@@ -474,7 +621,7 @@ export const TEST_DEFINITIONS: TestDefinition[] = [
     title: "Single-Leg Hop Balance",
     shortTitle: "Hop balance",
     description: "Left/right single-leg hop distance and symmetry.",
-    weight: 15,
+    weight: 12,
     resultLabel: "Average hop",
     benchmarkLabel: "120-240 cm plus symmetry",
     inputs: [
@@ -505,7 +652,7 @@ export const TEST_DEFINITIONS: TestDefinition[] = [
     title: "30m Sprint",
     shortTitle: "30m sprint",
     description: "Acceleration profile from a stopwatch time.",
-    weight: 20,
+    weight: 16,
     resultLabel: "Time",
     benchmarkLabel: "5.20-3.80 sec",
     inputs: [
@@ -527,7 +674,7 @@ export const TEST_DEFINITIONS: TestDefinition[] = [
     title: "Short-Approach Phase Balance",
     shortTitle: "Phase balance",
     description: "Hop, step, and jump distances compared with a 35/30/35 rhythm.",
-    weight: 25,
+    weight: 20,
     resultLabel: "Total distance",
     benchmarkLabel: "Total distance plus 35/30/35 ratio",
     inputs: [
@@ -560,6 +707,77 @@ export const TEST_DEFINITIONS: TestDefinition[] = [
       },
     ],
     calculate: calculatePhaseBalance,
+  },
+  {
+    id: "five-bound",
+    eventType: "triple-jump",
+    title: "5-Bound for Distance",
+    shortTitle: "5 bounds",
+    description:
+      "Five alternating bounds from a standing two-foot start. Reactive elastic power for the jump phases.",
+    weight: 12,
+    resultLabel: "Total distance",
+    benchmarkLabel: "10-17 m",
+    inputs: [
+      {
+        id: "distanceM",
+        label: "Total distance",
+        unit: "m",
+        min: 4,
+        max: 24,
+        step: "0.01",
+        placeholder: "14.20",
+      },
+    ],
+    calculate: (inputs: Record<string, number>) => {
+      const value = Math.round(inputs.distanceM * 100) / 100;
+      const result = benchmarkScore(value, {
+        floor: 10,
+        target: 17,
+        higherIsBetter: true,
+      });
+
+      return {
+        value,
+        unit: "m",
+        score: result.score,
+        zScore: result.zScore,
+        rating: ratingForScore(result.score),
+        detail: "Best five alternating bounds from a standing two-foot start.",
+      };
+    },
+  },
+  {
+    id: "hop-step-ratio",
+    eventType: "triple-jump",
+    title: "Hop-to-Step Ratio",
+    shortTitle: "Hop/step",
+    description:
+      "Step phase as a share of hop+step distance; protects the most common technical leak.",
+    weight: 8,
+    resultLabel: "Ratio error",
+    benchmarkLabel: "0-30 pts off ideal 54/46",
+    inputs: [
+      {
+        id: "hopM",
+        label: "Hop distance",
+        unit: "m",
+        min: 0.5,
+        max: 6,
+        step: "0.01",
+        placeholder: "3.10",
+      },
+      {
+        id: "stepM",
+        label: "Step distance",
+        unit: "m",
+        min: 0.5,
+        max: 6,
+        step: "0.01",
+        placeholder: "2.75",
+      },
+    ],
+    calculate: calculateHopStepRatio,
   },
 ];
 

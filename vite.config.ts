@@ -2,24 +2,27 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
-  base: "/win/",
+  base: "/",
   plugins: [
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico"],
       manifest: {
-        name: "WIN - Video Test Platform",
+        id: "/",
+        name: "WIN - Jumper Evaluation",
         short_name: "WIN",
-        start_url: "/win/",
-        scope: "/win/",
+        description: "Long jump and triple jump athlete evaluation, training todos, and progress tracking.",
+        start_url: "/",
+        scope: "/",
         display: "standalone",
-        background_color: "#000000",
-        theme_color: "#000000",
+        orientation: "portrait-primary",
+        background_color: "#121212",
+        theme_color: "#121212",
+        categories: ["sports", "health", "productivity"],
         icons: [
-          { src: "/win/pwa-192x192.png", sizes: "192x192", type: "image/png" },
-          { src: "/win/pwa-512x512.png", sizes: "512x512", type: "image/png" },
-        ],
-      },
-    }),
-  ],
+          { src: "/pwa-192x192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }
+        ]
+      }
+    })
+  ]
 });
