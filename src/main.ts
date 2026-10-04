@@ -102,6 +102,7 @@ let selectedWeek = 1;
 let selectedDayId = findCurrentDayId();
 let notice = "";
 let showAuthScreenExplicitly = false;
+let mobileMenuOpen = false;
 
 let currentStream: MediaStream | null = null;
 let currentRecording: RecordingController | null = null;
@@ -438,6 +439,7 @@ function renderAppShell(content: string): string {
 
   return `
     <div class="app-shell">
+      <!-- Desktop Sidebar (Hidden on mobile) -->
       <aside class="sidebar">
         <div class="brand-block">
           <span class="brand-mark">WIN</span>
@@ -466,10 +468,38 @@ function renderAppShell(content: string): string {
         </div>
       </aside>
 
+      <!-- Mobile Top Header (Sticky on mobile) -->
+      <header class="mobile-header">
+        <div class="mobile-brand" data-view="dashboard" role="button" tabindex="0">
+          <span class="brand-mark">WIN</span>
+          <span class="brand-subtitle">Jumper Lab</span>
+        </div>
+        <div class="mobile-header-actions">
+          <button class="mobile-profile-pill" type="button" data-view="profile" title="View profile">
+            <span class="mobile-avatar-circle">${escapeHtml(profile.username.charAt(0).toUpperCase())}</span>
+            <span class="mobile-username">@${escapeHtml(profile.username)}</span>
+          </button>
+          <button class="mobile-menu-btn" type="button" data-toggle-mobile-menu aria-label="Open menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </header>
+
       <main class="workspace">
         ${notice ? `<div class="notice"><span>${escapeHtml(notice)}</span><button class="notice-dismiss" type="button" data-dismiss-notice aria-label="Dismiss">✕</button></div>` : ""}
         ${content}
       </main>
+
+      <!-- Mobile Bottom Navigation Bar (Fixed thumb-friendly dock) -->
+      ${renderMobileBottomNav()}
+
+      <!-- Mobile Navigation Drawer -->
+      ${renderMobileDrawer()}
+
       ${renderGuideDrawer()}
     </div>
   `;
@@ -481,6 +511,157 @@ function renderNavButton(view: ViewId, label: string): string {
     <button class="nav-button ${active ? "is-active" : ""}" type="button" data-view="${view}" ${active ? 'aria-current="page"' : ""}>
       ${label}
     </button>
+  `;
+}
+
+function renderMobileBottomNav(): string {
+  if (!profile) return "";
+
+  const hasLJ = profile.events.includes("long-jump");
+  const hasTJ = profile.events.includes("triple-jump");
+
+  return `
+    <nav class="mobile-bottom-nav" aria-label="Mobile navigation bar">
+      ${renderMobileNavButton("dashboard", "Dashboard", `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+      `)}
+      ${renderMobileNavButton("todo", "Todo", `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 11l3 3L22 4"></path>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+      `)}
+      ${hasLJ ? renderMobileNavButton("long-jump", hasTJ ? "LJ" : "Long Jump", `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="4" r="2"></circle>
+          <path d="M5 21l6-9-3-2 3-5 5 4 3-2"></path>
+          <path d="M12 12l2 9"></path>
+        </svg>
+      `) : ""}
+      ${hasTJ ? renderMobileNavButton("triple-jump", hasLJ ? "TJ" : "Triple Jump", `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        </svg>
+      `) : (!hasLJ ? renderMobileNavButton("videos", "Videos", `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="23 7 16 12 23 17 23 7"></polygon>
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+        </svg>
+      `) : "")}
+      <button class="mobile-nav-btn ${mobileMenuOpen ? "is-active" : ""}" type="button" data-toggle-mobile-menu aria-label="Open more navigation options">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="1.5"></circle>
+          <circle cx="19" cy="12" r="1.5"></circle>
+          <circle cx="5" cy="12" r="1.5"></circle>
+        </svg>
+        <span>More</span>
+      </button>
+    </nav>
+  `;
+}
+
+function renderMobileNavButton(view: ViewId, label: string, iconSvg: string): string {
+  const active = !mobileMenuOpen && !activeEvaluation && activeView === view;
+  return `
+    <button class="mobile-nav-btn ${active ? "is-active" : ""}" type="button" data-view="${view}" ${active ? 'aria-current="page"' : ""}>
+      ${iconSvg}
+      <span>${label}</span>
+    </button>
+  `;
+}
+
+function renderMobileDrawer(): string {
+  if (!profile || !mobileMenuOpen) return "";
+
+  return `
+    <div class="mobile-drawer-backdrop" data-close-mobile-menu></div>
+    <aside class="mobile-drawer" aria-label="Navigation menu drawer">
+      <div class="mobile-drawer-header">
+        <div class="mobile-drawer-user">
+          <div class="mobile-avatar-circle large">${escapeHtml(profile.username.charAt(0).toUpperCase())}</div>
+          <div class="mobile-drawer-meta">
+            <strong>@${escapeHtml(profile.username)}</strong>
+            <small>${profile.events.map((eventType) => EVENT_LABELS[eventType]).join(" / ")}</small>
+            <span class="mobile-drawer-email">${escapeHtml(authSession?.user.email ?? "Guest account")}</span>
+          </div>
+        </div>
+        <button class="mobile-drawer-close" type="button" data-close-mobile-menu aria-label="Close menu">✕</button>
+      </div>
+
+      <div class="mobile-drawer-section-title">Navigation</div>
+      <nav class="mobile-drawer-links">
+        <button class="mobile-drawer-link ${activeView === "dashboard" ? "is-active" : ""}" type="button" data-view="dashboard">
+          <span class="drawer-icon">🏠</span>
+          <div class="drawer-text">
+            <strong>Dashboard</strong>
+            <small>Overview, PRs & records</small>
+          </div>
+        </button>
+
+        <button class="mobile-drawer-link ${activeView === "todo" ? "is-active" : ""}" type="button" data-view="todo">
+          <span class="drawer-icon">📋</span>
+          <div class="drawer-text">
+            <strong>Daily Training Plan</strong>
+            <small>Workouts & checklist</small>
+          </div>
+        </button>
+
+        ${profile.events.includes("long-jump") ? `
+          <button class="mobile-drawer-link ${activeView === "long-jump" ? "is-active" : ""}" type="button" data-view="long-jump">
+            <span class="drawer-icon">🥇</span>
+            <div class="drawer-text">
+              <strong>Long Jump</strong>
+              <small>Tests & composite score</small>
+            </div>
+          </button>
+        ` : ""}
+
+        ${profile.events.includes("triple-jump") ? `
+          <button class="mobile-drawer-link ${activeView === "triple-jump" ? "is-active" : ""}" type="button" data-view="triple-jump">
+            <span class="drawer-icon">🥉</span>
+            <div class="drawer-text">
+              <strong>Triple Jump</strong>
+              <small>Tests & composite score</small>
+            </div>
+          </button>
+        ` : ""}
+
+        <button class="mobile-drawer-link ${activeView === "comparison" ? "is-active" : ""}" type="button" data-view="comparison">
+          <span class="drawer-icon">⚖️</span>
+          <div class="drawer-text">
+            <strong>Comparison</strong>
+            <small>Side-by-side jump metrics</small>
+          </div>
+        </button>
+
+        <button class="mobile-drawer-link ${activeView === "videos" ? "is-active" : ""}" type="button" data-view="videos">
+          <span class="drawer-icon">🎥</span>
+          <div class="drawer-text">
+            <strong>Video Archive</strong>
+            <small>Recorded jump attempts</small>
+          </div>
+        </button>
+
+        <button class="mobile-drawer-link ${activeView === "profile" ? "is-active" : ""}" type="button" data-view="profile">
+          <span class="drawer-icon">👤</span>
+          <div class="drawer-text">
+            <strong>Profile & Targets</strong>
+            <small>Athlete info & target marks</small>
+          </div>
+        </button>
+      </nav>
+
+      <div class="mobile-drawer-footer">
+        ${
+          authSession
+            ? `<button class="sidebar-signout" type="button" data-sign-out>Sign out</button>`
+            : `<button class="sidebar-signout" type="button" data-view="profile">Account Settings</button>`
+        }
+      </div>
+    </aside>
   `;
 }
 
@@ -1839,10 +2020,25 @@ function bindAppShell(): void {
     });
   }
 
-  qsa<HTMLButtonElement>("[data-view]").forEach((button) => {
+  qsa<HTMLButtonElement>("[data-toggle-mobile-menu]").forEach((button) => {
+    button.addEventListener("click", () => {
+      mobileMenuOpen = !mobileMenuOpen;
+      render();
+    });
+  });
+
+  qsa<HTMLElement>("[data-close-mobile-menu]").forEach((el) => {
+    el.addEventListener("click", () => {
+      mobileMenuOpen = false;
+      render();
+    });
+  });
+
+  qsa<HTMLElement>("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
       const nextView = button.dataset.view as ViewId | undefined;
       if (!nextView) return;
+      mobileMenuOpen = false;
       resetActiveEvaluation();
       activeGuideId = null;
       guideEditMode = false;
