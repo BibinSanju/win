@@ -2392,7 +2392,17 @@ function splitCommaList(value: string): string[] {
 function isValidUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+
+    const hostname = url.hostname.toLowerCase();
+    if (!hostname || hostname === "localhost" || !hostname.includes(".")) return false;
+    if (hostname.startsWith(".") || hostname.endsWith(".") || hostname.includes("..")) return false;
+
+    return hostname.split(".").every((label) =>
+      label.length > 0 &&
+      label.length <= 63 &&
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label),
+    );
   } catch {
     return false;
   }
