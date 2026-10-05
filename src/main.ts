@@ -100,6 +100,8 @@ let authDraftEmail = "";
 let authDraftUsername = "";
 let authDraftDob = "";
 let authDraftEvents: EventType[] = ["long-jump", "triple-jump"];
+let authDraftRole: UserRole = "athlete";
+let authDraftMorning = false;
 let authError = "";
 let authMessage = "";
 let authBusy = false;
@@ -374,7 +376,7 @@ function renderAuthScreen(): string {
     ? `
         <label class="field">
           <span>Username</span>
-          <input id="auth-username" name="username" type="text" autocomplete="username" value="${escapeAttribute(authDraftUsername)}" placeholder="bibin_sanju" required />
+          <input id="auth-username" name="username" type="text" autocomplete="username" value="${escapeAttribute(authDraftUsername)}" placeholder="e.g. jumper_99" required />
         </label>
 
         <label class="field">
@@ -388,7 +390,7 @@ function renderAuthScreen(): string {
           ${renderEventChoice("triple-jump", authDraftEvents.includes("triple-jump"))}
         </fieldset>
 
-        ${renderRoleChoiceFields("athlete", false)}
+        ${renderRoleChoiceFields(authDraftRole, authDraftMorning)}
       `
     : "";
 
@@ -462,7 +464,7 @@ function renderOnboarding(): string {
 
         <label class="field">
           <span>Username</span>
-          <input id="profile-setup-username" name="username" type="text" autocomplete="username" placeholder="bibin_sanju" required />
+          <input id="profile-setup-username" name="username" type="text" autocomplete="username" placeholder="e.g. jumper_99" required />
         </label>
 
         <label class="field">
@@ -2419,6 +2421,8 @@ async function submitAuthForm(form: HTMLFormElement): Promise<void> {
     authDraftUsername = parsedProfile.username;
     authDraftDob = parsedProfile.dob;
     authDraftEvents = parsedProfile.events.length ? parsedProfile.events : authDraftEvents;
+    authDraftRole = parsedProfile.role;
+    authDraftMorning = parsedProfile.morningSessionsEnabled;
 
     if (parsedProfile.error) {
       authError = parsedProfile.error;
