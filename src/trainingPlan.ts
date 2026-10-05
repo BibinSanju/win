@@ -1,6 +1,7 @@
 import type {
   ExerciseCategory,
   ExerciseGuide,
+  TrainingDayPlan,
   TrainingPhase,
   TrainingPlanTemplate,
   TrainingSection,
@@ -694,353 +695,110 @@ export function createExerciseGuides(): Record<string, ExerciseGuide> {
   );
 }
 
-function item(id: string, label: string, exerciseId?: string): TrainingTodoItem {
-  return exerciseId ? { id, label, exerciseId } : { id, label };
+
+export function createWorkoutItem(
+  label: string,
+  options?: {
+    exerciseId?: string;
+    setsReps?: string;
+    notes?: string;
+    category?: ExerciseCategory;
+  }
+): TrainingTodoItem {
+  const id = `w-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const res: TrainingTodoItem = { id, label };
+  if (options?.exerciseId) res.exerciseId = options.exerciseId;
+  if (options?.setsReps) res.setsReps = options.setsReps;
+  if (options?.notes) res.notes = options.notes;
+  if (options?.category) res.category = options.category;
+  return res;
 }
 
 export function createDefaultTrainingPlan(): TrainingPlanTemplate {
   return {
-    id: "jumper-12-week-default",
-    title: "Triple Jump & Long Jump - 3 Month Training Todo List",
-    trainingTime: "5:00 PM - 6:30 PM",
-    goal: "Improve speed, power, jumping force, approach rhythm, and competition performance.",
-    currentPb: "Long Jump - 6.5 m | Triple Jump - 13 m",
-    targetPeriod: "12 weeks / 3 months",
-    dailyChecklist: [
-      item("daily-sleep", "Slept well last night"),
-      item("daily-food", "Ate proper pre-workout food"),
-      item("daily-water", "Water bottle ready"),
-      item("daily-shoes", "Shoes/spikes ready"),
-      item("daily-warmup", "Warm-up completed"),
-      item("daily-main", "Main workout completed"),
-      item("daily-cooldown", "Cooldown completed"),
-      item("daily-stretching", "Stretching completed"),
-      item("daily-notes", "Notes written after workout"),
-    ],
+    id: "squad-training-plan",
+    title: "Squad Training Plan",
+    trainingTime: "Daily Track Session",
+    goal: "Improve speed, jumping power, approach rhythm, and competition performance.",
+    currentPb: "Track & Field",
+    targetPeriod: "Active Season",
+    dailyChecklist: [],
     days: [
       {
         id: "monday",
         name: "Monday",
-        title: "Acceleration + Lower Body Power",
-        focus: "Sprint start, drive phase, take-off force.",
-        sections: [
-          {
-            id: "workout",
-            title: "Workout Todo",
-            items: [
-              item("mon-jog-mobility", "Jog + mobility warm-up", "mobility-warm-up"),
-              item("mon-sprint-drills", "A-skip, B-skip, high knees, ankling", "sprint-drills"),
-              item("mon-20m", "4 x 20 m sprint", "acceleration-sprint"),
-              item("mon-30m", "4 x 30 m sprint", "acceleration-sprint"),
-              item("mon-40m", "3 x 40 m sprint", "acceleration-sprint"),
-              item(
-                "mon-takeoff-drill",
-                "6 x 4-6 step long jump take-off drill",
-                "long-jump-takeoff"
-              ),
-              item("mon-standing-lj", "4 x 2 standing long jumps", "standing-long-jump"),
-              item("mon-plank", "Core plank 3 x 45 sec", "plank"),
-              item("mon-cooldown", "Cooldown + stretching", "stretching-cooldown"),
-            ],
-          },
-          {
-            id: "gym-strength",
-            title: "Strength Todo - Gym",
-            note: "Choose gym or no-gym.",
-            items: [
-              item("mon-squat", "Squat 4 x 4", "squat"),
-              item("mon-rdl", "Romanian deadlift 3 x 5", "romanian-deadlift"),
-              item("mon-calf-gym", "Calf raises 3 x 12", "calf-raises"),
-              item("mon-hip-thrust", "Hip thrust 3 x 6", "hip-thrust"),
-            ],
-          },
-          {
-            id: "no-gym-strength",
-            title: "Strength Todo - No Gym",
-            items: [
-              item("mon-jump-squat", "Jump squats 4 x 5", "jump-squats"),
-              item("mon-glute-bridge", "Single-leg glute bridge 3 x 8 each leg", "glute-bridge"),
-              item("mon-lunges", "Walking lunges 3 x 10 each leg", "lunges"),
-              item("mon-calf-nogym", "Calf raises 4 x 15", "calf-raises"),
-            ],
-          },
-        ],
+        title: "Monday Session",
+        focus: "Track & Field Practice",
+        sections: [],
       },
       {
         id: "tuesday",
         name: "Tuesday",
-        title: "Triple Jump Technique + Bounding",
-        focus: "Hop-step-jump rhythm, elastic power, active landings.",
-        sections: [
-          {
-            id: "workout",
-            title: "Workout Todo",
-            items: [
-              item("tue-warmup-drills", "Warm-up + sprint drills", "sprint-drills"),
-              item("tue-approach", "6 approach run-throughs", "approach-run"),
-              item("tue-bounds", "4 x 30 m alternate bounds", "alternate-bounds"),
-              item("tue-hops", "3 x 15 m single-leg hops each leg", "single-leg-hops"),
-              item("tue-hop-step", "5 hop-step drills", "hop-step-drill"),
-              item("tue-short-tj", "4-6 short approach triple jumps", "triple-jump-short-approach"),
-              item(
-                "tue-med-ball",
-                "4 x 5 medicine ball throws / explosive push",
-                "medicine-ball-throw"
-              ),
-              item("tue-side-plank", "Side plank 3 x 30 sec each side", "side-plank"),
-              item("tue-cooldown", "Cooldown + stretching", "stretching-cooldown"),
-            ],
-          },
-          {
-            id: "technique-notes",
-            title: "Technique Notes",
-            items: [
-              item("tue-hop-controlled", "First hop is controlled, not too big"),
-              item("tue-chest-tall", "Chest stays tall"),
-              item("tue-step-active", "Step phase stays active"),
-              item("tue-rhythm", "Fast-fast-long rhythm maintained"),
-            ],
-          },
-        ],
+        title: "Tuesday Session",
+        focus: "Track & Field Practice",
+        sections: [],
       },
       {
         id: "wednesday",
         name: "Wednesday",
-        title: "Recovery + Tempo + Mobility",
-        focus: "Recovery, flexibility, light fitness.",
-        sections: [
-          {
-            id: "workout",
-            title: "Workout Todo",
-            items: [
-              item("wed-easy-warmup", "Easy warm-up", "mobility-warm-up"),
-              item("wed-tempo", "6-8 x 100 m tempo runs at 65-70%", "tempo-runs"),
-              item("wed-walkback", "Walk-back recovery after each run", "tempo-runs"),
-              item("wed-mobility", "Mobility flow 15 min", "mobility-flow"),
-              item("wed-dead-bug", "Dead bug 3 x 12", "dead-bug"),
-              item("wed-bird-dog", "Bird dog 3 x 12", "bird-dog"),
-              item("wed-hollow", "Hollow hold 3 x 20 sec", "hollow-hold"),
-              item("wed-russian", "Russian twist 3 x 20", "russian-twist"),
-              item("wed-foam", "Stretching / foam rolling 10 min", "foam-roll-stretch"),
-            ],
-          },
-        ],
+        title: "Wednesday Session",
+        focus: "Track & Field Practice",
+        sections: [],
       },
       {
         id: "thursday",
         name: "Thursday",
-        title: "Max Speed + Explosive Plyometrics",
-        focus: "Top speed, fast ground contact, elastic power.",
-        sections: [
-          {
-            id: "workout",
-            title: "Workout Todo",
-            items: [
-              item("thu-warmup-drills", "Warm-up + sprint drills", "sprint-drills"),
-              item("thu-flying", "5 flying 20 m sprints", "flying-sprint"),
-              item("thu-60m", "4 x 60 m sprint at 90-95%", "acceleration-sprint"),
-              item("thu-sfs", "3 x 60 m sprint-float-sprint", "sprint-float-sprint"),
-              item("thu-pogo", "Pogo jumps 3 x 20", "pogo-jumps"),
-              item("thu-hurdle", "Hurdle hops / low cone hops 4 x 5", "hurdle-hops"),
-              item("thu-split-squat", "Split squat jumps 3 x 5 each leg", "split-squat-jump"),
-              item("thu-cooldown", "Cooldown + stretching", "stretching-cooldown"),
-            ],
-          },
-          {
-            id: "strength",
-            title: "Strength Todo",
-            items: [
-              item(
-                "thu-power-clean",
-                "Power clean 4 x 3 OR jump squats 4 x 4",
-                "power-clean-or-jump-squat"
-              ),
-              item("thu-core-stability", "Core stability 10 min", "core-stability"),
-            ],
-          },
-        ],
+        title: "Thursday Session",
+        focus: "Rest / Active Recovery",
+        sections: [],
       },
       {
         id: "friday",
         name: "Friday",
-        title: "Long Jump + Triple Jump Event Day",
-        focus: "Approach rhythm, board accuracy, event practice.",
-        sections: [
-          {
-            id: "workout",
-            title: "Workout Todo",
-            items: [
-              item("fri-warmup-drills", "Warm-up + sprint drills", "sprint-drills"),
-              item("fri-lj-approach", "6 long jump approach check runs", "approach-run"),
-              item("fri-lj-jumps", "4-6 long jumps from 10-14 strides", "long-jump-practice"),
-              item("fri-short-tj", "3-4 short approach triple jumps", "triple-jump-short-approach"),
-              item("fri-landing", "5 landing drills in pit", "landing-drills"),
-              item("fri-bound-rhythm", "3 x 30 m bounding rhythm drill", "bounding-rhythm"),
-              item("fri-core-mobility", "Core + mobility 10 min", "core-stability"),
-              item("fri-cooldown", "Cooldown + stretching", "stretching-cooldown"),
-            ],
-          },
-          {
-            id: "event-focus",
-            title: "Event Focus",
-            items: [
-              item("fri-focus-selected", "Week focus selected: Long Jump / Triple Jump"),
-              item("fri-board", "Board accuracy checked"),
-              item("fri-best-jump", "Best jump measured"),
-              item("fri-video", "Video recorded"),
-              item("fri-mistakes", "Mistakes noted"),
-            ],
-          },
-        ],
+        title: "Friday Session",
+        focus: "Track & Field Practice",
+        sections: [],
       },
       {
         id: "saturday",
         name: "Saturday",
-        title: "Light Strength + Flexibility",
-        focus: "Injury prevention, weak points, mobility.",
-        sections: [
-          {
-            id: "workout",
-            title: "Workout Todo",
-            items: [
-              item("sat-easy", "Easy jog / cycling 10 min", "easy-jog-cycle"),
-              item("sat-hill", "5 x 40 m hill sprint at 75-80%", "hill-sprint"),
-              item("sat-stepups", "Step-ups 3 x 8 each leg", "step-ups"),
-              item(
-                "sat-nordic",
-                "Nordic hamstring curl / hamstring bridge 3 x 5",
-                "nordic-hamstring"
-              ),
-              item("sat-calf", "Calf raises 4 x 15", "calf-raises"),
-              item("sat-hip-mobility", "Hip mobility 20 min", "hip-mobility"),
-              item("sat-stretch", "Full-body stretching", "stretching-cooldown"),
-            ],
-          },
-        ],
+        title: "Saturday Session",
+        focus: "Competition / Simulation",
+        sections: [],
       },
       {
         id: "sunday",
         name: "Sunday",
-        title: "Full Rest",
-        focus: "Recover and prepare for the next week.",
-        sections: [
-          {
-            id: "recovery",
-            title: "Recovery Todo",
-            items: [
-              item("sun-no-running", "No hard running"),
-              item("sun-no-jumping", "No jumping"),
-              item("sun-sleep", "Sleep well"),
-              item("sun-hydrate", "Hydrate properly"),
-              item("sun-walk", "Light walking only if needed", "easy-jog-cycle"),
-              item("sun-prepare", "Prepare for next week"),
-            ],
-          },
-        ],
+        title: "Sunday Session",
+        focus: "Rest & Recovery",
+        sections: [],
       },
     ],
-    phases: [
-      {
-        id: "foundation",
-        title: "Foundation + Technique",
-        weekRange: "Weeks 1-4",
-        weeks: [1, 2, 3, 4],
-        goal: "Build clean technique, sprint mechanics, and basic strength.",
-        items: [
-          item("phase-found-short-approach", "Short approach jumps only", "long-jump-practice"),
-          item("phase-found-plyos", "Low to medium plyometrics", "pogo-jumps"),
-          item("phase-found-sprint", "Focus on sprint form", "sprint-drills"),
-          item("phase-found-strength", "Build strength safely", "squat"),
-          item("phase-found-video", "Record videos weekly"),
-        ],
-        weeklyCheckFields: [
-          "Long Jump best",
-          "Triple Jump best",
-          "30 m sprint time",
-          "Standing long jump",
-          "Notes",
-        ],
-      },
-      {
-        id: "speed-power",
-        title: "Speed + Power Phase",
-        weekRange: "Weeks 5-8",
-        weeks: [5, 6, 7, 8],
-        goal: "Increase approach speed, take-off force, and elastic power.",
-        items: [
-          item("phase-speed-flying", "Add flying sprints", "flying-sprint"),
-          item("phase-speed-strides", "Use 10-16 stride jumps", "long-jump-practice"),
-          item("phase-speed-explosive", "Increase explosive work", "jump-squats"),
-          item("phase-speed-board", "Practice board accuracy", "approach-run"),
-          item("phase-speed-measure", "Measure jumps every Friday"),
-        ],
-        weeklyCheckFields: [
-          "Long Jump best",
-          "Triple Jump best",
-          "30 m sprint time",
-          "Flying 20 m time",
-          "5 bounds distance",
-          "Notes",
-        ],
-      },
-      {
-        id: "competition",
-        title: "Competition Simulation",
-        weekRange: "Weeks 9-11",
-        weeks: [9, 10, 11],
-        goal: "Perform under competition style pressure.",
-        items: [
-          item("phase-comp-warmup", "Full warm-up", "mobility-warm-up"),
-          item("phase-comp-lj", "3 long jump attempts", "long-jump-practice"),
-          item("phase-comp-tj", "3 triple jump attempts", "triple-jump-short-approach"),
-          item("phase-comp-measure", "Measure all jumps"),
-          item("phase-comp-fouls", "Track fouls"),
-          item("phase-comp-video", "Review video"),
-          item("phase-comp-stop", "Stop if speed drops badly"),
-        ],
-        weeklyCheckFields: [
-          "Best LJ attempt",
-          "Best TJ attempt",
-          "Fouls",
-          "Board accuracy",
-          "Notes",
-        ],
-      },
-      {
-        id: "taper",
-        title: "Taper Week",
-        weekRange: "Week 12",
-        weeks: [12],
-        goal: "Fresh legs, sharp speed, no fatigue.",
-        items: [
-          item("phase-taper-volume", "Reduce training volume"),
-          item("phase-taper-speed", "Keep sprint speed sharp", "flying-sprint"),
-          item("phase-taper-heavy", "No heavy lifting"),
-          item("phase-taper-bounding", "No high-volume bounding"),
-          item("phase-taper-sleep", "Sleep properly"),
-          item("phase-taper-kit", "Competition kit ready"),
-        ],
-        weeklyCheckFields: [
-          "Long Jump target",
-          "Triple Jump target",
-          "Main technical cue",
-          "Competition date",
-        ],
-      },
-    ],
-    progressFields: ["LJ Best", "TJ Best", "30 m Sprint", "Flying 20 m", "Standing LJ", "Notes"],
-    personalReminders: [
-      item("reminder-quality", "Quality is more important than quantity"),
-      item("reminder-heavy-legs", "Do not sprint/jump hard if legs are heavy"),
-      item("reminder-pain", "Pain in shin, knee, ankle, or Achilles means reduce bounding"),
-      item("reminder-board", "Board accuracy matters as much as raw speed"),
-      item("reminder-hop", "Do not make triple jump first hop too big"),
-      item("reminder-recovery", "Recovery is also training"),
-      item("reminder-video", "Record and review videos weekly"),
-    ],
+    phases: [],
+    progressFields: ["LJ Best", "TJ Best", "30 m Sprint", "Standing LJ", "Notes"],
+    personalReminders: [],
     importedSections: [],
     exerciseGuides: createExerciseGuides(),
-    updatedAt: NOW,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function isLegacyDefaultPlan(plan: TrainingPlanTemplate): boolean {
+  if (plan.id === "jumper-12-week-default") return true;
+  return plan.days.some((d) =>
+    d.sections.some((s) =>
+      s.items.some((i) => i.id === "mon-jog-mobility" || i.id === "tue-warmup" || i.id === "mon-20m")
+    )
+  );
+}
+
+export function sanitizeTrainingPlan(plan: TrainingPlanTemplate): TrainingPlanTemplate {
+  if (!isLegacyDefaultPlan(plan)) return plan;
+  const clean = createDefaultTrainingPlan();
+  return {
+    ...clean,
+    id: "squad-training-plan",
+    exerciseGuides: plan.exerciseGuides ?? clean.exerciseGuides,
   };
 }
 
@@ -1052,63 +810,325 @@ export function findCurrentDayId(): string {
 
 export function getPhaseForWeek(plan: TrainingPlanTemplate, week: number): TrainingPhase {
   const phase = plan.phases.find((candidate) => candidate.weeks.includes(week));
-  const firstPhase = plan.phases[0];
-  if (!phase && !firstPhase) {
-    throw new Error("Training plan has no phases.");
+  if (phase) return phase;
+  if (plan.phases[0]) return plan.phases[0];
+  return {
+    id: `phase-${week}`,
+    title: "General Preparation",
+    weekRange: `Week ${week}`,
+    weeks: [week],
+    goal: "Focus on technique, speed, and consistency.",
+    items: [],
+    weeklyCheckFields: [],
+  };
+}
+
+export const SAMPLE_WEEKLY_MARKDOWN = `# 12-Week Jumper Squad Plan: Week 1
+
+## Monday: Approach Run-Up & Acceleration Speed
+### Dynamic Warm-Up
+- [ ] Jog & Dynamic Mobility Flow | 10 mins | Full range of motion for ankles & hips
+- [ ] Sprint Mechanics Drills (A-Skips & B-Skips) | 3x25m | Tall posture, active pawing strike
+
+### Technical Jumps
+- [ ] 6-Stride Approach Pop-Offs into pit | 4 jumps | Fast last two steps, upright takeoff
+- [ ] Full Runway Approach Checkmarks | 4 runs | Consistency on board accuracy
+
+## Tuesday: Plyometrics & Lower Body Power
+### Plyometrics & Bounds
+- [ ] Depth Jumps from 30cm Box | 4x4 reps | Minimal ground contact time, reactive pop
+- [ ] Alternate Leg Bounds | 4x30m | High hips, violent knee punch
+
+### Strength & Power
+- [ ] Trap Bar Deadlift | 4x5 @ 75% | Explosive hip extension
+- [ ] Romanian Deadlift (RDL) | 3x8 reps | Controlled eccentric, hinge from hips
+
+## Wednesday: Active Recovery & Mobility
+### Mobility & Prehab
+- [ ] Foam Rolling & Hip Mobility Flow | 20 mins | Glutes, hamstrings, hip flexors
+- [ ] Core Stability Circuit: Plank & Dead Bug | 3 sets x 45s
+
+## Thursday: Speed & Takeoff Power
+### Sprint & Speed
+- [ ] 30m Acceleration Sprints | 5 reps @ 95% | 3 min full recovery between reps
+
+### Jump Mechanics
+- [ ] Penultimate Step Takeoff Drill | 4 sets x 4 reps | Low-to-high center of mass
+
+## Friday: Complex Training & Competition Prep
+### Complex Training
+- [ ] Jump Squats | 4x5 reps @ bodyweight | Maximum vertical explosion
+- [ ] Standing Long Jump | 4 max effort attempts | Deep arm swing, full extension
+- [ ] Short Approach Triple Jump | 4 attempts | Balanced hop-to-jump ratios
+
+## Saturday: Competition / Field Testing
+### Runway Testing
+- [ ] Runway Approach & Takeoff Simulation | 6 attempts | Board accuracy and landing
+
+## Sunday: Complete Rest
+### Recovery
+- [ ] Rest & Hydration | Full recovery
+`;
+
+function inferCategory(text: string): ExerciseCategory {
+  const lower = text.toLowerCase();
+  if (/plyo|bound|depth jump|drop jump|hurdle hop|pogo/i.test(lower)) return "plyometric";
+  if (/sprint|speed|accel|flying|20m|30m|40m|60m|flys/i.test(lower)) return "sprint";
+  if (/jump|pop-off|approach|takeoff|take-off|landing|long jump|triple jump/i.test(lower)) return "jump";
+  if (/strength|squat|deadlift|rdl|clean|press|lunge|thrust|lift/i.test(lower)) return "strength";
+  if (/core|plank|dead bug|bird dog|hollow|twist/i.test(lower)) return "core";
+  if (/warm|mobility|jog|stretch|foam|flow|activation/i.test(lower)) return "mobility";
+  if (/recover|cooldown|cool down|rest|walk|ice/i.test(lower)) return "recovery";
+  return "jump";
+}
+
+function parseItemLine(
+  rawLine: string,
+  sectionTitle: string,
+  guides: Record<string, ExerciseGuide>
+): TrainingTodoItem {
+  let text = rawLine.trim();
+
+  // Strip leading checkbox or bullet: "- [ ]", "- [x]", "-", "*", "+", "•", "1."
+  text = text.replace(/^(?:-\s*\[[\sxX]?\]\s*|[-*+•⁃‣]\s*|\d+[\.)]\s*)/, "").trim();
+
+  let label = text;
+  let setsReps: string | undefined;
+  let notes: string | undefined;
+
+  // 1. Check for pipe format: "Exercise Name | 4x5 reps | Focus on tall hips"
+  if (text.includes("|")) {
+    const parts = text.split("|").map((p) => p.trim());
+    label = parts[0] || "Exercise";
+    if (parts.length >= 2 && parts[1]) {
+      setsReps = parts[1];
+    }
+    if (parts.length >= 3 && parts[2]) {
+      notes = parts.slice(2).join("; ");
+    }
+  } else {
+    // 2. Check for sets/reps in parentheses: "Depth Jumps (4x4 reps) - minimal ground contact"
+    const parenMatch = text.match(/\(([^)]*(?:\d+\s*[xX]\s*\d+|\d+\s*(?:reps?|sets?|mins?|m|sec|kg|lbs?|%)|max|bodyweight)[^)]*)\)/i);
+    if (parenMatch) {
+      setsReps = parenMatch[1].trim();
+      label = text.replace(parenMatch[0], "").replace(/\s{2,}/g, " ").trim();
+    }
+
+    // Check for colon separation: "A-Skips: 3x25m - tall posture"
+    if (!setsReps && label.includes(":")) {
+      const colonIdx = label.indexOf(":");
+      const candidateLabel = label.slice(0, colonIdx).trim();
+      const remainder = label.slice(colonIdx + 1).trim();
+      if (/\d/.test(remainder)) {
+        label = candidateLabel;
+        if (remainder.includes(" - ")) {
+          const parts = remainder.split(" - ").map((p) => p.trim());
+          setsReps = parts[0];
+          notes = parts.slice(1).join(" - ");
+        } else {
+          setsReps = remainder;
+        }
+      }
+    }
+
+    // Check for dash separation after label: "Trap Bar Deadlift - 4x5 @ 80% - explosive hip drive"
+    if (label.includes(" - ")) {
+      const parts = label.split(" - ").map((p) => p.trim());
+      label = parts[0] || label;
+      if (!setsReps && parts[1] && /\d/.test(parts[1])) {
+        setsReps = parts[1];
+        if (parts[2]) notes = parts.slice(2).join(" - ");
+      } else if (!notes && parts.length > 1) {
+        notes = parts.slice(1).join(" - ");
+      }
+    }
   }
-  return phase ?? firstPhase;
+
+  // Clean trailing punctuation
+  label = label.replace(/[:\-–—]$/, "").trim();
+
+  const category = inferCategory(sectionTitle + " " + label);
+  const exerciseId = matchExerciseId(label, guides);
+
+  return createWorkoutItem(label, {
+    setsReps,
+    category,
+    notes,
+    exerciseId,
+  });
 }
 
 export function parseMarkdownChecklist(
   markdown: string,
   currentPlan: TrainingPlanTemplate
 ): TrainingPlanTemplate {
-  const importedSections: TrainingSection[] = [];
-  let currentSection: TrainingSection | null = null;
-  let sectionIndex = 0;
-  let itemIndex = 0;
+  const DAY_ALIASES: Record<string, string> = {
+    monday: "monday",
+    mon: "monday",
+    tuesday: "tuesday",
+    tue: "tuesday",
+    tues: "tuesday",
+    wednesday: "wednesday",
+    wed: "wednesday",
+    thursday: "thursday",
+    thu: "thursday",
+    thur: "thursday",
+    thurs: "thursday",
+    friday: "friday",
+    fri: "friday",
+    saturday: "saturday",
+    sat: "saturday",
+    sunday: "sunday",
+    sun: "sunday",
+  };
 
-  for (const rawLine of markdown.split(/\r?\n/)) {
+  const dayRegex = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\b/i;
+
+  let overallTitle = currentPlan.title;
+  let currentDayId: string | null = null;
+  let currentSectionTitle = "Dynamic Warm-Up";
+  let foundAnyDays = false;
+  const daysFoundInMarkdown = new Set<string>();
+
+  // Clone days from currentPlan with an empty sections array so days in markdown start fresh
+  const daysMap = new Map<string, {
+    id: string;
+    name: string;
+    title: string;
+    focus: string;
+    sections: TrainingSection[];
+  }>();
+
+  for (const d of currentPlan.days) {
+    daysMap.set(d.id, {
+      ...d,
+      sections: [],
+    });
+  }
+
+  const genericSections: TrainingSection[] = [];
+  let genericCurrentSection: TrainingSection | null = null;
+  let sectionCounter = 0;
+
+  const lines = markdown.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
     const line = rawLine.trim();
-    const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    const checkbox = line.match(/^-\s+\[\s?\]\s+(.+)$/);
+    if (!line) continue;
 
-    if (heading) {
-      const title = heading[2]?.replace(/\*\*/g, "").trim() ?? "Imported section";
-      sectionIndex += 1;
-      currentSection = {
-        id: `imported-${sectionIndex}`,
-        title,
-        items: [],
-      };
-      importedSections.push(currentSection);
+    // Check for top-level document title: e.g. # 12-Week Training Plan
+    const h1Match = line.match(/^#\s+(.+)$/);
+    if (h1Match && !dayRegex.test(h1Match[1])) {
+      overallTitle = h1Match[1].replace(/\*\*/g, "").trim();
       continue;
     }
 
-    if (!checkbox) continue;
+    // Check if heading or bold line represents a Day of the Week
+    const headingMatch = line.match(/^(?:#{1,4}\s+|\*\*)(.+?)(?:\*\*|$)/);
+    if (headingMatch) {
+      const headingText = headingMatch[1].trim();
+      const match = headingText.match(dayRegex);
 
-    if (!currentSection) {
-      sectionIndex += 1;
-      currentSection = {
-        id: `imported-${sectionIndex}`,
-        title: "Imported checklist",
+      if (match) {
+        const dayKey = match[1].toLowerCase();
+        const targetDayId = DAY_ALIASES[dayKey];
+        if (targetDayId && daysMap.has(targetDayId)) {
+          currentDayId = targetDayId;
+          foundAnyDays = true;
+          daysFoundInMarkdown.add(targetDayId);
+          currentSectionTitle = "Dynamic Warm-Up";
+
+          const dayObj = daysMap.get(targetDayId)!;
+          const sepMatch = headingText.match(/(?:[:\-–—|]\s*)(.+)$/);
+          if (sepMatch && sepMatch[1].trim()) {
+            dayObj.focus = sepMatch[1].trim();
+            dayObj.title = headingText;
+          }
+          continue;
+        }
+      }
+
+      // If already inside a day, this is a Section heading within that day
+      if (currentDayId) {
+        currentSectionTitle = headingText.replace(/[:\-–—]$/, "").trim();
+        continue;
+      }
+
+      // Otherwise, generic section
+      sectionCounter += 1;
+      genericCurrentSection = {
+        id: `imported-${sectionCounter}`,
+        title: headingText,
         items: [],
       };
-      importedSections.push(currentSection);
+      genericSections.push(genericCurrentSection);
+      continue;
     }
 
-    const label = checkbox[1]?.trim() ?? "Imported item";
-    itemIndex += 1;
-    currentSection.items.push(
-      item(`imported-${itemIndex}`, label, matchExerciseId(label, currentPlan.exerciseGuides))
-    );
+    // Check if line is a workout item (checkbox, bullet, number, or plain item with pipe)
+    const isItem =
+      /^(?:-\s*\[[\sxX]?\]\s*|[-*+•⁃‣]\s*|\d+[\.)]\s*)/.test(line) ||
+      (Boolean(currentDayId) && line.includes("|") && !line.startsWith("#"));
+
+    if (isItem) {
+      if (currentDayId && daysMap.has(currentDayId)) {
+        const dayObj = daysMap.get(currentDayId)!;
+        let sec = dayObj.sections.find((s) => s.title.toLowerCase() === currentSectionTitle.toLowerCase());
+        if (!sec) {
+          sectionCounter += 1;
+          sec = {
+            id: `${currentDayId}-${sectionCounter}-${Date.now().toString(36)}`,
+            title: currentSectionTitle,
+            items: [],
+          };
+          dayObj.sections.push(sec);
+        }
+        const parsedItem = parseItemLine(line, currentSectionTitle, currentPlan.exerciseGuides);
+        sec.items.push(parsedItem);
+      } else {
+        // Generic section item
+        if (!genericCurrentSection) {
+          sectionCounter += 1;
+          genericCurrentSection = {
+            id: `imported-${sectionCounter}`,
+            title: "Imported Checklist",
+            items: [],
+          };
+          genericSections.push(genericCurrentSection);
+        }
+        const parsedItem = parseItemLine(line, genericCurrentSection.title, currentPlan.exerciseGuides);
+        genericCurrentSection.items.push(parsedItem);
+      }
+    }
   }
+
+  // If days were found, construct updated days array
+  const updatedDays: TrainingDayPlan[] = foundAnyDays
+    ? currentPlan.days.map((originalDay) => {
+        const parsed = daysMap.get(originalDay.id);
+        if (parsed && daysFoundInMarkdown.has(originalDay.id)) {
+          return {
+            ...originalDay,
+            title: parsed.title,
+            focus: parsed.focus,
+            sections: parsed.sections,
+          };
+        }
+        // If not in the weekly plan markdown, reset sections so week is clean
+        return {
+          ...originalDay,
+          sections: [],
+        };
+      })
+    : currentPlan.days;
 
   return {
     ...currentPlan,
-    title: "Imported Training Plan",
+    title: overallTitle,
+    days: updatedDays,
+    importedSections: foundAnyDays ? currentPlan.importedSections : genericSections.filter((s) => s.items.length > 0),
     sourceMarkdown: markdown,
-    importedSections: importedSections.filter((section) => section.items.length > 0),
     updatedAt: new Date().toISOString(),
   };
 }

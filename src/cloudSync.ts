@@ -8,7 +8,12 @@ import {
   saveTrainingPlan,
 } from "./db";
 import { supabase } from "./supabaseClient";
-import { createDefaultTrainingPlan } from "./trainingPlan";
+import {
+  countPlanItems,
+  createDefaultTrainingPlan,
+  isLegacyDefaultPlan,
+  sanitizeTrainingPlan,
+} from "./trainingPlan";
 import type {
   AthleteProfile,
   EvaluationRecord,
@@ -127,11 +132,49 @@ export async function synchronizeUserData(
     await saveProfile(cloudProfile);
   }
 
+  const isCoach = (cloudProfile?.role === "coach") || (cloudProfile?.username?.toLowerCase() === "bibinsanju");
+  let activePlan: TrainingPlanTemplate;
+
   if (cloudPlan) {
-    await saveTrainingPlan(cloudPlan);
+    const cleanPlan = sanitizeTrainingPlan(cloudPlan);
+    activePlan = cleanPlan;
+
+    // If athlete, check if coach has published a newer or populated squad plan
+    if (!isCoach) {
+      try {
+        const squadPlan = await fetchLatestSquadTrainingPlan();
+        if (squadPlan) {
+          const cleanSquadPlan = sanitizeTrainingPlan(squadPlan);
+          const squadHasItems = countPlanItems(cleanSquadPlan) > 0;
+          const cloudHasItems = countPlanItems(cleanPlan) > 0;
+          const squadNewer = new Date(cleanSquadPlan.updatedAt).getTime() > new Date(cleanPlan.updatedAt).getTime();
+
+          if ((!cloudHasItems && squadHasItems) || (squadHasItems && squadNewer)) {
+            activePlan = cleanSquadPlan;
+          }
+        }
+      } catch (err) {
+        console.warn("Could not check latest squad plan for athlete:", err);
+      }
+    }
+
+    await saveTrainingPlan(activePlan);
+    if (isLegacyDefaultPlan(cloudPlan) || activePlan !== cleanPlan) {
+      try {
+        await upsertCloudTrainingPlan(userId, activePlan);
+      } catch (err) {
+        console.warn("Could not upsert synced plan to cloud:", err);
+      }
+    }
   } else {
-    const defaultPlan = createDefaultTrainingPlan();
-    await upsertCloudTrainingPlan(userId, defaultPlan);
+    const squadPlan = await fetchLatestSquadTrainingPlan();
+    const defaultPlan = squadPlan ? sanitizeTrainingPlan(squadPlan) : createDefaultTrainingPlan();
+    activePlan = defaultPlan;
+    try {
+      await upsertCloudTrainingPlan(userId, defaultPlan);
+    } catch (err) {
+      console.warn("Could not upsert default plan to cloud:", err);
+    }
     await saveTrainingPlan(defaultPlan);
   }
 
@@ -238,11 +281,25 @@ async function fetchCloudTrainingPlan(userId: string): Promise<TrainingPlanTempl
     .from("training_plans")
     .select("*")
     .eq("user_id", userId)
-    .eq("id", "jumper-12-week-default")
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) throw error;
   return data ? trainingPlanFromRow(data as TrainingPlanRow) : null;
+}
+
+async function fetchLatestSquadTrainingPlan(): Promise<TrainingPlanTemplate | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("training_plans")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return trainingPlanFromRow(data as TrainingPlanRow);
 }
 
 async function fetchCloudEvaluationRows(userId: string): Promise<EvaluationRow[]> {
@@ -290,13 +347,15 @@ function profileToRow(userId: string, profile: AthleteProfile): ProfileRow {
 }
 
 function profileFromRow(row: ProfileRow): AthleteProfile {
+  const username = normalizeUsername(row.username ?? row.name ?? "athlete");
   return {
     id: "local-athlete",
-    username: normalizeUsername(row.username ?? row.name ?? "athlete"),
+    username,
     dob: toDateOnly(row.dob),
     events: toEventTypes(row.events),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    role: username.toLowerCase() === "bibinsanju" ? "coach" : "athlete",
   };
 }
 

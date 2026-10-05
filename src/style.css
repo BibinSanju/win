@@ -2475,3 +2475,766 @@ tbody tr:hover {
     width: 100vw;
   }
 }
+
+/* ──────────────────────────────────────────────────────────── */
+/* Coach Hub, Workout Modal & Admin Dashboard Styles            */
+/* ──────────────────────────────────────────────────────────── */
+
+.coach-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #f7cb63;
+  background: rgba(229, 178, 64, 0.15);
+  border: 1px solid rgba(229, 178, 64, 0.4);
+  line-height: 1.2;
+}
+
+.athlete-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #9aa2b2;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  line-height: 1.2;
+}
+
+.profile-chip-user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.mobile-tag {
+  margin-left: 6px;
+  font-size: 0.62rem;
+  padding: 1px 6px;
+}
+
+.todo-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.coach-actions-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.coach-add-btn {
+  padding: 0.55rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.athlete-info-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 0.85rem;
+  background: rgba(80, 160, 240, 0.08);
+  border: 1px solid rgba(80, 160, 240, 0.2);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #9ec5fe;
+}
+
+.day-has-items-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #e5b240;
+  border-radius: 50%;
+  margin-left: 5px;
+}
+
+.empty-plan-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 2.25rem 1.5rem;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.empty-plan-icon {
+  font-size: 2.2rem;
+  margin-bottom: 0.5rem;
+}
+
+.empty-plan-card h3 {
+  font-size: 1.1rem;
+  margin: 0 0 0.4rem;
+  color: #f0f2f5;
+}
+
+.empty-plan-card p {
+  font-size: 0.88rem;
+  color: #8f96a3;
+  margin: 0 0 1rem;
+}
+
+.section-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-add-footer {
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.add-to-section-btn {
+  width: 100%;
+  text-align: center;
+  font-size: 0.82rem;
+  color: #e5b240;
+  border: 1px dashed rgba(229, 178, 64, 0.3);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  transition: all 0.15s ease;
+}
+
+.add-to-section-btn:hover {
+  background: rgba(229, 178, 64, 0.08);
+  border-color: rgba(229, 178, 64, 0.6);
+}
+
+.todo-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 6px;
+  transition: background 0.15s ease;
+}
+
+.todo-row.is-completed-row {
+  opacity: 0.7;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.todo-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.todo-row .todo-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.todo-label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.todo-meta-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.badge-sets {
+  font-family: monospace;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #f5cb68;
+  background: rgba(229, 178, 64, 0.12);
+  border: 1px solid rgba(229, 178, 64, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.badge-cat {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8eb2f7;
+  background: rgba(80, 120, 200, 0.12);
+  border: 1px solid rgba(80, 120, 200, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.todo-coach-notes {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #d1d5db;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid #e5b240;
+  padding: 4px 8px;
+  border-radius: 0 4px 4px 0;
+  margin-top: 3px;
+}
+
+.coach-note-icon {
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.todo-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.coach-delete-item-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(240, 80, 80, 0.2);
+  color: #f77;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.coach-delete-item-btn:hover {
+  background: rgba(240, 80, 80, 0.15);
+  border-color: rgba(240, 80, 80, 0.5);
+  color: #ff9999;
+}
+
+.todo-day-card-footer {
+  padding-top: 0.75rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.text-action {
+  color: #e5b240;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.coach-quick-builder-card {
+  border-color: rgba(229, 178, 64, 0.3);
+  background: linear-gradient(180deg, rgba(229, 178, 64, 0.05), rgba(255, 255, 255, 0.02));
+}
+
+.coach-quick-btn-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 0.75rem;
+}
+
+/* Modal */
+.workout-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  z-index: 1200;
+}
+
+.workout-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90vw;
+  max-width: 540px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #14171d;
+  border: 1px solid rgba(229, 178, 64, 0.35);
+  border-radius: 14px;
+  padding: 1.5rem;
+  z-index: 1201;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+}
+
+.workout-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 1.25rem;
+}
+
+.workout-modal-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #f5f6f8;
+}
+
+.workout-modal-close {
+  background: transparent;
+  border: none;
+  color: #9aa2b2;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.workout-modal-close:hover {
+  color: #f5f6f8;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.modal-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.preset-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+
+.preset-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #c0c4cc;
+  padding: 4px 9px;
+  font-size: 0.74rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preset-pill:hover {
+  border-color: rgba(229, 178, 64, 0.5);
+  color: #f7cb63;
+}
+
+.preset-pill.is-selected {
+  background: rgba(229, 178, 64, 0.2);
+  border-color: #e5b240;
+  color: #f7cb63;
+  font-weight: 600;
+}
+
+.workout-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 1.25rem;
+}
+
+/* Admin Dashboard */
+.admin-tab-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 8px;
+  overflow-x: auto;
+}
+
+.admin-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #8d95a5;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.admin-tab:hover {
+  color: #f0f2f5;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.admin-tab.is-active {
+  color: #e5b240;
+  background: rgba(229, 178, 64, 0.12);
+  border-color: rgba(229, 178, 64, 0.35);
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.workout-builder-card,
+.weekly-schedule-manager,
+.analysis-card {
+  background: rgba(20, 23, 29, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.builder-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 0.5rem;
+}
+
+.builder-card-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #f5f6f8;
+}
+
+.compact-btn {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+}
+
+.builder-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.builder-form-actions {
+  margin-top: 1rem;
+}
+
+.admin-days-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 1rem;
+}
+
+.admin-day-accordion {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+}
+
+.admin-day-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.admin-day-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-day-badge {
+  font-size: 0.74rem;
+  color: #9aa2b2;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.admin-day-sections {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-sub-section {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.admin-sub-section-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #e5b240;
+  margin-bottom: 6px;
+}
+
+.admin-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.admin-item-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+}
+
+.admin-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-item-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #e8eaed;
+}
+
+.admin-empty-day-hint {
+  font-size: 0.82rem;
+  color: #7a8290;
+  padding: 10px 14px;
+  margin: 0;
+}
+
+.admin-analysis-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.analysis-battery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.battery-tile {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.battery-metric-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #e5b240;
+  margin-bottom: 4px;
+}
+
+.battery-tile strong {
+  display: block;
+  font-size: 1rem;
+  color: #f0f2f5;
+  margin-bottom: 6px;
+}
+
+.battery-tile p {
+  font-size: 0.82rem;
+  color: #8d95a5;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.admin-eval-table-wrapper {
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+
+.admin-eval-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.admin-eval-table th,
+.admin-eval-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.admin-eval-table th {
+  color: #8d95a5;
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.rating-badge {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.rating-excellent {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+}
+
+.rating-strong {
+  background: rgba(96, 165, 250, 0.15);
+  color: #60a5fa;
+}
+
+.rating-developing {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
+.rating-needs-focus {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+@media (max-width: 900px) {
+  .admin-grid {
+    grid-template-columns: 1fr;
+  }
+  .modal-form-row,
+  .builder-form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────── */
+/* Weekly Markdown Importer Banner & Modal Styles               */
+/* ──────────────────────────────────────────────────────────── */
+
+.admin-import-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.15rem 1.4rem;
+  margin-bottom: 1.5rem;
+  background: linear-gradient(135deg, rgba(229, 178, 64, 0.08) 0%, rgba(20, 23, 29, 0.95) 100%);
+  border: 1px solid rgba(229, 178, 64, 0.32);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.admin-import-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.banner-icon {
+  font-size: 1.85rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.admin-import-banner-left strong {
+  display: block;
+  font-size: 0.96rem;
+  color: #f7cb63;
+  margin-bottom: 3px;
+  font-weight: 700;
+}
+
+.admin-import-banner-left p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #9aa2b2;
+  line-height: 1.4;
+}
+
+.admin-import-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-shrink: 0;
+}
+
+.compact-btn {
+  padding: 0.45rem 0.85rem !important;
+  font-size: 0.82rem !important;
+  font-weight: 600 !important;
+}
+
+.markdown-import-modal {
+  max-width: 680px !important;
+  width: 92vw;
+}
+
+.md-template-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .admin-import-banner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+    padding: 1rem;
+  }
+
+  .admin-import-banner-actions {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .admin-import-banner-actions button,
+  .admin-import-banner-actions label {
+    width: 100%;
+    text-align: center;
+    box-sizing: border-box;
+  }
+}
+

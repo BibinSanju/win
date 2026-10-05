@@ -19,6 +19,8 @@ export interface VideoAttachment {
   durationMs: number;
 }
 
+export type UserRole = "coach" | "athlete";
+
 export interface AthleteProfile {
   id: "local-athlete";
   username: string;
@@ -26,6 +28,7 @@ export interface AthleteProfile {
   events: EventType[];
   createdAt: string;
   updatedAt: string;
+  role?: UserRole;
 }
 
 export interface EvaluationRecord {
@@ -73,6 +76,9 @@ export interface TrainingTodoItem {
   id: string;
   label: string;
   exerciseId?: string;
+  setsReps?: string;
+  notes?: string;
+  category?: ExerciseCategory;
 }
 
 export interface TrainingSection {

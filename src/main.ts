@@ -42,26 +42,33 @@ import type { RankStatus, TestDefinition } from "./scoring";
 import {
   countPlanItems,
   createDefaultTrainingPlan,
+  createWorkoutItem,
   findCurrentDayId,
   getPhaseForWeek,
+  isLegacyDefaultPlan,
+  matchExerciseId,
   parseMarkdownChecklist,
+  SAMPLE_WEEKLY_MARKDOWN,
+  sanitizeTrainingPlan,
 } from "./trainingPlan";
 import type {
   AthleteProfile,
   Attempt,
   EvaluationRecord,
   EventType,
+  ExerciseCategory,
   ExerciseGuide,
   TodoProgress,
   TodoSectionPreference,
   TrainingDayPlan,
   TrainingPlanTemplate,
   TrainingTodoItem,
+  UserRole,
 } from "./types";
 import { isSupabaseConfigured, supabase } from "./supabaseClient";
 import type { AuthSession } from "./supabaseClient";
 
-type ViewId = "dashboard" | "todo" | EventType | "comparison" | "videos" | "profile";
+type ViewId = "dashboard" | "todo" | EventType | "comparison" | "videos" | "profile" | "admin";
 
 interface ActiveEvaluation {
   eventType: EventType;
@@ -103,6 +110,16 @@ let selectedDayId = findCurrentDayId();
 let notice = "";
 let showAuthScreenExplicitly = false;
 let mobileMenuOpen = false;
+let workoutModalOpen = false;
+let workoutModalDayId = "monday";
+let workoutModalSectionTitle = "Dynamic Warm-Up";
+let markdownModalOpen = false;
+let adminTab: "workouts" | "analysis" = "workouts";
+
+function isCoach(): boolean {
+  if (!profile) return false;
+  return profile.role === "coach" || profile.username.toLowerCase() === "bibinsanju";
+}
 
 let currentStream: MediaStream | null = null;
 let currentRecording: RecordingController | null = null;
@@ -231,12 +248,16 @@ async function init(): Promise<void> {
 
 async function loadLocalState(options: { saveDefaultTrainingPlan: boolean }): Promise<void> {
   profile = (await getProfile()) ?? null;
+  if (profile && !profile.role) {
+    profile.role = profile.username.toLowerCase() === "bibinsanju" ? "coach" : "athlete";
+  }
   evaluations = await listEvaluations();
   legacyAttempts = await listAttempts();
 
   const cachedTrainingPlan = await getTrainingPlan();
-  trainingPlan = cachedTrainingPlan ?? createDefaultTrainingPlan();
-  if (!cachedTrainingPlan && options.saveDefaultTrainingPlan) {
+  const rawPlan = cachedTrainingPlan ?? createDefaultTrainingPlan();
+  trainingPlan = sanitizeTrainingPlan(rawPlan);
+  if ((!cachedTrainingPlan && options.saveDefaultTrainingPlan) || isLegacyDefaultPlan(rawPlan)) {
     await saveTrainingPlan(trainingPlan);
   }
 
@@ -299,6 +320,10 @@ function render(): void {
 
   if (activeView === "todo") {
     bindTodoView();
+  }
+
+  if (activeView === "admin") {
+    bindAdminView();
   }
 }
 
@@ -448,6 +473,7 @@ function renderAppShell(content: string): string {
 
         <nav class="side-nav" aria-label="Main navigation">
           ${renderNavButton("dashboard", "Dashboard")}
+          ${isCoach() ? renderNavButton("admin", "Admin Hub") : ""}
           ${renderNavButton("todo", "Todo")}
           ${profile.events.includes("long-jump") ? renderNavButton("long-jump", "Long Jump") : ""}
           ${profile.events.includes("triple-jump") ? renderNavButton("triple-jump", "Triple Jump") : ""}
@@ -457,7 +483,10 @@ function renderAppShell(content: string): string {
         </nav>
 
         <div class="profile-chip">
-          <span>@${escapeHtml(profile.username)}</span>
+          <div class="profile-chip-user-row">
+            <span>@${escapeHtml(profile.username)}</span>
+            ${isCoach() ? `<span class="coach-tag">Coach</span>` : `<span class="athlete-tag">Athlete</span>`}
+          </div>
           <small>${profile.events.map((eventType) => EVENT_LABELS[eventType]).join(" / ")}</small>
           <small>${escapeHtml(authSession?.user.email ?? "Synced account")}</small>
           ${
@@ -473,6 +502,7 @@ function renderAppShell(content: string): string {
         <div class="mobile-brand" data-view="dashboard" role="button" tabindex="0">
           <span class="brand-mark">WIN</span>
           <span class="brand-subtitle">Jumper Lab</span>
+          ${isCoach() ? `<span class="coach-tag mobile-tag">Coach</span>` : ""}
         </div>
         <div class="mobile-header-actions">
           <button class="mobile-profile-pill" type="button" data-view="profile" title="View profile">
@@ -501,6 +531,8 @@ function renderAppShell(content: string): string {
       ${renderMobileDrawer()}
 
       ${renderGuideDrawer()}
+      ${renderWorkoutModal()}
+      ${renderMarkdownModal()}
     </div>
   `;
 }
@@ -593,6 +625,16 @@ function renderMobileDrawer(): string {
 
       <div class="mobile-drawer-section-title">Navigation</div>
       <nav class="mobile-drawer-links">
+        ${isCoach() ? `
+          <button class="mobile-drawer-link ${activeView === "admin" ? "is-active" : ""}" type="button" data-view="admin">
+            <span class="drawer-icon">⚡</span>
+            <div class="drawer-text">
+              <strong>Coach Admin Hub</strong>
+              <small>Manage workouts & stats analysis</small>
+            </div>
+          </button>
+        ` : ""}
+
         <button class="mobile-drawer-link ${activeView === "dashboard" ? "is-active" : ""}" type="button" data-view="dashboard">
           <span class="drawer-icon">🏠</span>
           <div class="drawer-text">
@@ -669,6 +711,8 @@ function renderCurrentView(): string {
   if (!profile) return "";
 
   switch (activeView) {
+    case "admin":
+      return renderAdminView();
     case "todo":
       return renderTodoView();
     case "long-jump":
@@ -834,11 +878,15 @@ function renderTodoView(): string {
   const completedCount = visibleIds.filter((id) => isTodoComplete(id)).length;
   const completion = visibleIds.length > 0 ? Math.round((completedCount / visibleIds.length) * 100) : 0;
   const guideCount = Object.keys(trainingPlan.exerciseGuides).length;
+  const coachMode = isCoach();
 
   return `
     <section class="page-header">
       <div>
-        <p class="eyebrow">Training todo</p>
+        <div class="todo-title-row">
+          <p class="eyebrow">Training todo</p>
+          ${coachMode ? `<span class="coach-tag">Coach Editing Mode</span>` : `<span class="athlete-tag">Athlete Mode (Mark as Done Only)</span>`}
+        </div>
         <h1>${escapeHtml(trainingPlan.title)}</h1>
         <p class="lead">${escapeHtml(trainingPlan.trainingTime)} | ${escapeHtml(trainingPlan.targetPeriod)}</p>
       </div>
@@ -860,10 +908,24 @@ function renderTodoView(): string {
         </select>
       </label>
 
-      <div class="import-control">
-        <input id="plan-import" type="file" accept=".md,text/markdown,text/plain" />
-        <label class="secondary-action" for="plan-import">Import MD plan</label>
-      </div>
+      ${coachMode ? `
+        <div class="coach-actions-bar">
+          <button class="primary-action coach-add-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
+            + Add Workout to ${escapeHtml(day.name)}
+          </button>
+          <button class="secondary-action coach-add-btn" type="button" data-open-markdown-modal>
+            📝 Paste Week Plan (.md)
+          </button>
+          <div class="import-control">
+            <input id="plan-import" type="file" accept=".md,text/markdown,text/plain" />
+            <label class="ghost-action" for="plan-import" style="cursor: pointer;">📁 Upload .md</label>
+          </div>
+        </div>
+      ` : `
+        <div class="athlete-info-pill">
+          <span>✓ View exercises & check off as completed</span>
+        </div>
+      `}
     </section>
 
     <section class="day-tabs" aria-label="Training days">
@@ -872,6 +934,7 @@ function renderTodoView(): string {
           (candidate) => `
             <button class="day-tab ${candidate.id === day.id ? "is-active" : ""}" type="button" data-day-id="${candidate.id}">
               ${candidate.name}
+              ${candidate.sections.some(s => s.items.length > 0) ? '<span class="day-has-items-dot"></span>' : ''}
             </button>
           `
         )
@@ -889,31 +952,69 @@ function renderTodoView(): string {
             </div>
             ${renderScoreGauge(completion)}
           </div>
+          ${coachMode ? `
+            <div class="todo-day-card-footer">
+              <button class="ghost-action text-action" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
+                + Add Exercise to ${escapeHtml(day.name)}
+              </button>
+            </div>
+          ` : ""}
         </article>
 
-        ${renderTodoSection("daily", "Daily Training Checklist", trainingPlan.dailyChecklist)}
+        ${day.sections.length === 0 && trainingPlan.dailyChecklist.length === 0 ? `
+          <div class="empty-plan-card">
+            <div class="empty-plan-icon">🏃‍♂️</div>
+            <h3>No workouts scheduled for ${escapeHtml(day.name)}</h3>
+            <p>${coachMode ? "Add drills, plyometrics, sprints, or strength exercises for your athletes." : "Rest or recovery day. Check other days for scheduled workouts."}</p>
+            ${coachMode ? `
+              <button class="primary-action coach-add-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
+                + Add First Workout
+              </button>
+            ` : ""}
+          </div>
+        ` : ""}
+
+        ${trainingPlan.dailyChecklist.length > 0 ? renderTodoSection("daily", "Daily Training Checklist", trainingPlan.dailyChecklist) : ""}
         ${day.sections
-          .map((section) => renderTodoSection(`week-${selectedWeek}-${day.id}-${section.id}`, section.title, section.items, section.note))
+          .map((section) => renderTodoSection(`week-${selectedWeek}-${day.id}-${section.id}`, section.title, section.items, section.note, day.id))
           .join("")}
-        ${renderTodoSection(`phase-${selectedWeek}`, `${phase.weekRange} - ${phase.title}`, phase.items, phase.goal)}
+        ${phase.items.length > 0 ? renderTodoSection(`phase-${selectedWeek}`, `${phase.weekRange} - ${phase.title}`, phase.items, phase.goal) : ""}
         ${renderImportedSections(trainingPlan)}
       </div>
 
       <aside class="todo-side">
+        ${coachMode ? `
+          <article class="todo-info-card coach-quick-builder-card">
+            <p class="eyebrow">Coach Quick Actions</p>
+            <h3>Manage Schedule</h3>
+            <p class="muted">Add workouts to any day or navigate to the Admin Hub for complete squad oversight.</p>
+            <div class="coach-quick-btn-group">
+              <button class="primary-action" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
+                + Add Workout
+              </button>
+              <button class="secondary-action" type="button" data-view="admin">
+                Open Admin Hub
+              </button>
+            </div>
+          </article>
+        ` : ""}
+
         <article class="todo-info-card">
           <p class="eyebrow">Current phase</p>
           <h2>${escapeHtml(phase.title)}</h2>
           <p>${escapeHtml(phase.goal)}</p>
         </article>
 
-        <article class="todo-info-card">
-          <p class="eyebrow">Weekly checks</p>
-          <ul class="simple-list">
-            ${phase.weeklyCheckFields.map((field) => `<li>${escapeHtml(field)}</li>`).join("")}
-          </ul>
-        </article>
+        ${phase.weeklyCheckFields.length > 0 ? `
+          <article class="todo-info-card">
+            <p class="eyebrow">Weekly checks</p>
+            <ul class="simple-list">
+              ${phase.weeklyCheckFields.map((field) => `<li>${escapeHtml(field)}</li>`).join("")}
+            </ul>
+          </article>
+        ` : ""}
 
-        ${renderTodoSection("personal-reminders", "Personal Reminders", trainingPlan.personalReminders)}
+        ${trainingPlan.personalReminders.length > 0 ? renderTodoSection("personal-reminders", "Personal Reminders", trainingPlan.personalReminders) : ""}
       </aside>
     </section>
   `;
@@ -940,10 +1041,12 @@ function renderTodoSection(
   scope: string,
   title: string,
   items: TrainingTodoItem[],
-  note?: string
+  note?: string,
+  dayId?: string
 ): string {
   const collapsed = isTodoSectionCollapsed(scope);
   const completed = items.filter((todoItem) => isTodoComplete(makeProgressId(scope, todoItem.id))).length;
+  const coachMode = isCoach();
 
   return `
     <article class="todo-section ${collapsed ? "is-collapsed" : ""}">
@@ -957,16 +1060,26 @@ function renderTodoSection(
           <h2>${escapeHtml(title)}</h2>
           ${note ? `<p>${escapeHtml(note)}</p>` : ""}
         </div>
-        <span class="section-toggle-summary">
-          <strong>${completed}/${items.length}</strong>
-          <span>${collapsed ? "Show" : "Hide"}</span>
-        </span>
+        <div class="section-header-right">
+          <span class="section-toggle-summary">
+            <strong>${completed}/${items.length}</strong>
+            <span>${collapsed ? "Show" : "Hide"}</span>
+          </span>
+        </div>
       </button>
       ${
         collapsed
           ? ""
           : `<div class="todo-items">
+              ${items.length === 0 ? `<p class="empty-section-hint">No exercises in this section yet.</p>` : ""}
               ${items.map((todoItem) => renderTodoRow(scope, todoItem)).join("")}
+              ${coachMode && dayId ? `
+                <div class="section-add-footer">
+                  <button class="ghost-action add-to-section-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(dayId)}" data-section-title="${escapeAttribute(title)}">
+                    + Add to ${escapeHtml(title)}
+                  </button>
+                </div>
+              ` : ""}
             </div>`
       }
     </article>
@@ -978,23 +1091,46 @@ function renderTodoRow(scope: string, todoItem: TrainingTodoItem): string {
   const checked = isTodoComplete(progressId);
   const guide =
     todoItem.exerciseId && trainingPlan ? trainingPlan.exerciseGuides[todoItem.exerciseId] : undefined;
+  const coachMode = isCoach();
 
   return `
-    <div class="todo-row">
-      <label class="todo-check">
-        <input
-          type="checkbox"
-          data-progress-id="${escapeAttribute(progressId)}"
-          data-item-id="${escapeAttribute(todoItem.id)}"
-          ${checked ? "checked" : ""}
-        />
-        <span class="todo-label ${checked ? "is-complete" : ""}">${escapeHtml(todoItem.label)}</span>
-      </label>
-      ${
-        guide
-          ? `<button class="ghost-action how-to-button" type="button" data-guide-id="${guide.id}">How to do</button>`
-          : ""
-      }
+    <div class="todo-row ${checked ? "is-completed-row" : ""}">
+      <div class="todo-row-main">
+        <label class="todo-check">
+          <input
+            type="checkbox"
+            data-progress-id="${escapeAttribute(progressId)}"
+            data-item-id="${escapeAttribute(todoItem.id)}"
+            ${checked ? "checked" : ""}
+          />
+          <div class="todo-label-group">
+            <span class="todo-label ${checked ? "is-complete" : ""}">${escapeHtml(todoItem.label)}</span>
+            <div class="todo-meta-badges">
+              ${todoItem.setsReps ? `<span class="badge-sets">${escapeHtml(todoItem.setsReps)}</span>` : ""}
+              ${todoItem.category ? `<span class="badge-cat">${escapeHtml(todoItem.category)}</span>` : ""}
+            </div>
+            ${todoItem.notes ? `
+              <div class="todo-coach-notes">
+                <span class="coach-note-icon">💡</span>
+                <span>${escapeHtml(todoItem.notes)}</span>
+              </div>
+            ` : ""}
+          </div>
+        </label>
+      </div>
+
+      <div class="todo-row-actions">
+        ${
+          guide
+            ? `<button class="ghost-action how-to-button" type="button" data-guide-id="${guide.id}">How to do</button>`
+            : ""
+        }
+        ${
+          coachMode
+            ? `<button class="coach-delete-item-btn" type="button" data-delete-workout-item data-item-id="${escapeAttribute(todoItem.id)}" title="Delete exercise">✕</button>`
+            : ""
+        }
+      </div>
     </div>
   `;
 }
@@ -1484,11 +1620,16 @@ function renderLegacyVideo(attempt: Attempt): string {
 function renderProfileView(): string {
   if (!profile) return "";
 
+  const coachMode = isCoach();
+
   return `
     <section class="page-header">
       <div>
-        <p class="eyebrow">Profile</p>
-        <h1>Athlete settings</h1>
+        <div class="todo-title-row">
+          <p class="eyebrow">Profile & Role Settings</p>
+          ${coachMode ? `<span class="coach-tag">Coach / Admin</span>` : `<span class="athlete-tag">Athlete</span>`}
+        </div>
+        <h1>Athlete Settings</h1>
         <p class="lead">${
           authSession
             ? `Signed in as ${escapeHtml(authSession.user.email ?? "Supabase user")}. Profile changes sync to Supabase.`
@@ -1508,6 +1649,15 @@ function renderProfileView(): string {
         <input id="profile-dob" name="dob" type="date" value="${escapeAttribute(profile.dob)}" required />
       </label>
 
+      <label class="field">
+        <span>Account Role</span>
+        <select id="profile-role" name="role">
+          <option value="coach" ${profile.role === "coach" ? "selected" : ""}>Coach / Admin (Manage Workouts & Squad Diagnostics)</option>
+          <option value="athlete" ${profile.role === "athlete" ? "selected" : ""}>Athlete (View Workouts & Mark Done Only)</option>
+        </select>
+        <small class="field-hint">Coaches can add/delete workouts and access the Admin Hub. Toggle to Athlete to test the student view.</small>
+      </label>
+
       <fieldset class="event-select">
         <legend>Events</legend>
         ${renderEventChoice("long-jump", profile.events.includes("long-jump"))}
@@ -1515,8 +1665,446 @@ function renderProfileView(): string {
       </fieldset>
 
       <p class="form-error" id="profile-error" role="alert"></p>
-      <button class="primary-action" type="submit">Save profile</button>
+      <button class="primary-action" type="submit">Save Profile & Role</button>
     </form>
+  `;
+}
+
+function renderWorkoutModal(): string {
+  if (!workoutModalOpen || !isCoach() || !trainingPlan) return "";
+
+  const days = trainingPlan.days;
+  const presetSections = [
+    "Dynamic Warm-Up",
+    "Plyometrics & Bounds",
+    "Technical Run-Up & Jumps",
+    "Strength & Power",
+    "Core & Mobility",
+    "Cooldown & Recovery",
+  ];
+
+  return `
+    <div class="workout-modal-backdrop" data-close-workout-modal></div>
+    <div class="workout-modal" role="dialog" aria-modal="true" aria-labelledby="modal-workout-title">
+      <div class="workout-modal-header">
+        <div>
+          <p class="eyebrow">Coach Workout Assignment</p>
+          <h2 id="modal-workout-title">Add Exercise to Schedule</h2>
+        </div>
+        <button class="workout-modal-close" type="button" data-close-workout-modal aria-label="Close dialog">✕</button>
+      </div>
+
+      <form id="modal-workout-form" class="workout-modal-form" novalidate>
+        <div class="modal-form-row">
+          <label class="field">
+            <span>Day of Week</span>
+            <select name="dayId" required>
+              ${days.map(d => `<option value="${d.id}" ${d.id === workoutModalDayId ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Category</span>
+            <select name="category">
+              <option value="jump">Jump / Technical</option>
+              <option value="plyometric">Plyometric / Bounds</option>
+              <option value="sprint">Sprint / Speed</option>
+              <option value="strength">Strength / Power</option>
+              <option value="core">Core / Posture</option>
+              <option value="mobility">Mobility / Warmup</option>
+              <option value="recovery">Recovery / Cooldown</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="field">
+          <span>Section / Phase</span>
+          <div class="preset-pill-row">
+            ${presetSections.map(preset => `
+              <button class="preset-pill ${preset === workoutModalSectionTitle ? "is-selected" : ""}" type="button" data-set-section="${escapeAttribute(preset)}">
+                ${escapeHtml(preset)}
+              </button>
+            `).join("")}
+          </div>
+          <input name="sectionTitle" type="text" value="${escapeAttribute(workoutModalSectionTitle)}" placeholder="e.g. Dynamic Warm-Up" required />
+        </div>
+
+        <label class="field">
+          <span>Exercise Name</span>
+          <input name="label" type="text" placeholder="e.g. Approach Run-throughs (12-stride) or Box Drop to Hurdle Hop" required />
+        </label>
+
+        <label class="field">
+          <span>Sets & Reps / Prescription</span>
+          <input name="setsReps" type="text" placeholder="e.g. 5 sets x 3 reps (full recovery) or 4x30m flys" />
+        </label>
+
+        <label class="field">
+          <span>Coaching Cues & Notes for Athlete</span>
+          <textarea name="notes" rows="2" placeholder="e.g. Focus on tall posture, active pawing takeoff foot, violent free knee drive"></textarea>
+        </label>
+
+        <p class="form-error" id="modal-workout-error" role="alert"></p>
+
+        <div class="workout-modal-actions">
+          <button class="ghost-action" type="button" data-close-workout-modal>Cancel</button>
+          <button class="primary-action" type="submit">+ Add Exercise</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function renderMarkdownModal(): string {
+  if (!markdownModalOpen || !isCoach()) return "";
+
+  return `
+    <div class="workout-modal-backdrop" data-close-markdown-modal></div>
+    <div class="workout-modal markdown-import-modal" role="dialog" aria-modal="true" aria-labelledby="modal-md-title">
+      <div class="workout-modal-header">
+        <div>
+          <p class="eyebrow">Whole Week Workout Import</p>
+          <h2 id="modal-md-title">Import Weekly Training Markdown</h2>
+        </div>
+        <button class="workout-modal-close" type="button" data-close-markdown-modal aria-label="Close dialog">✕</button>
+      </div>
+
+      <p class="muted" style="margin-bottom: 0.75rem; font-size: 0.85rem;">
+        Paste your markdown below. Use day headings (<code># Monday</code>, <code>## Tuesday</code>, etc.) and section headings (<code>### Dynamic Warm-Up</code>, <code>### Technical Jumps</code>, etc.). Use pipe <code>|</code> to separate sets/reps and cues (e.g. <code>- [ ] A-Skips | 3x25m | Tall posture</code>).
+      </p>
+
+      <div class="md-template-actions">
+        <button class="ghost-action compact-btn" type="button" id="load-sample-md-btn">
+          📋 Load Sample 7-Day Plan Template
+        </button>
+        <button class="ghost-action compact-btn" type="button" id="clear-md-btn">
+          Clear
+        </button>
+      </div>
+
+      <form id="markdown-import-form" class="workout-modal-form" novalidate style="margin-top: 0.6rem;">
+        <label class="field" style="margin-bottom: 0.75rem;">
+          <span>Markdown Text</span>
+          <textarea
+            id="markdown-import-textarea"
+            name="markdown"
+            rows="14"
+            placeholder="# 12-Week Squad Plan&#10;&#10;## Monday: Speed & Approach&#10;### Dynamic Warm-Up&#10;- [ ] Jog & Mobility Flow | 10 mins&#10;- [ ] A-Skips & B-Skips | 3x25m | Tall hips&#10;&#10;### Technical Jumps&#10;- [ ] 6-Stride Pop-Offs | 4 jumps | Fast penultimate step&#10;&#10;## Tuesday: Plyometrics & Strength&#10;### Plyometrics & Bounds&#10;- [ ] Depth Jumps (4x4 reps) | Minimal ground contact&#10;- [ ] Trap Bar Deadlift | 4x5 @ 75%"
+            style="font-family: monospace; font-size: 0.82rem; line-height: 1.5; resize: vertical;"
+            required
+          ></textarea>
+        </label>
+
+        <p class="form-error" id="markdown-import-error" role="alert"></p>
+
+        <div class="workout-modal-actions">
+          <button class="ghost-action" type="button" data-close-markdown-modal>Cancel</button>
+          <button class="primary-action" type="submit">🚀 Import Entire Week</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function renderAdminView(): string {
+  if (!profile || !trainingPlan) return "";
+
+  const coachMode = isCoach();
+  if (!coachMode) {
+    return `
+      <section class="page-header">
+        <div>
+          <p class="eyebrow">Restricted</p>
+          <h1>Coach Access Required</h1>
+          <p class="lead">You are currently in athlete mode. Toggle your role to Coach in Profile to manage squad workouts.</p>
+        </div>
+      </section>
+      <div class="empty-plan-card">
+        <p>Switch your role to Coach / Admin in the Profile tab to unlock workout scheduling and athlete diagnostics.</p>
+        <button class="primary-action" type="button" data-view="profile">Go to Profile Settings</button>
+      </div>
+    `;
+  }
+
+  const totalExercises = countPlanItems(trainingPlan);
+  const totalEvals = evaluations.length;
+  const totalVideos = evaluations.filter((record) => Boolean(record.video)).length +
+    legacyAttempts.filter((attempt) => Boolean(attempt.video)).length;
+  const days = trainingPlan.days;
+
+  const presetSections = [
+    "Dynamic Warm-Up",
+    "Plyometrics & Bounds",
+    "Technical Run-Up & Jumps",
+    "Strength & Power",
+    "Core & Mobility",
+    "Cooldown & Recovery",
+  ];
+
+  return `
+    <section class="page-header admin-header">
+      <div>
+        <div class="todo-title-row">
+          <p class="eyebrow">Coach Command Center</p>
+          <span class="coach-tag">Admin Hub</span>
+        </div>
+        <h1>Coach Dashboard: @${escapeHtml(profile.username)}</h1>
+        <p class="lead">Manage student training schedules, prescribe workouts, and review squad evaluation diagnostics.</p>
+      </div>
+      <div class="header-metrics">
+        ${renderMiniMetric("Workouts", String(totalExercises))}
+        ${renderMiniMetric("Evaluations", String(totalEvals))}
+        ${renderMiniMetric("Videos", String(totalVideos))}
+      </div>
+    </section>
+
+    <!-- Admin Navigation Tabs -->
+    <div class="admin-tab-bar">
+      <button class="admin-tab ${adminTab === "workouts" ? "is-active" : ""}" type="button" data-admin-tab="workouts">
+        🏋️ Workout Builder & Schedule
+      </button>
+      <button class="admin-tab ${adminTab === "analysis" ? "is-active" : ""}" type="button" data-admin-tab="analysis">
+        📊 Student Stats & Performance Analysis
+      </button>
+    </div>
+
+    ${adminTab === "workouts" ? `
+      <!-- Batch Whole Week Markdown Importer Banner -->
+      <section class="admin-import-banner">
+        <div class="admin-import-banner-left">
+          <span class="banner-icon">📝</span>
+          <div>
+            <strong>Batch Import Full Week Schedule (Markdown)</strong>
+            <p>Upload a .md file or paste your week's training markdown. Days, sections, sets/reps, and coaching cues are automatically assigned across Monday to Sunday.</p>
+          </div>
+        </div>
+        <div class="admin-import-banner-actions">
+          <button class="primary-action compact-btn" type="button" data-open-markdown-modal>
+            📋 Paste Weekly Markdown
+          </button>
+          <label class="secondary-action compact-btn" for="admin-plan-import" style="cursor: pointer; margin: 0; display: inline-flex; align-items: center; justify-content: center;">
+            📁 Upload .md File
+          </label>
+          <input id="admin-plan-import" type="file" accept=".md,text/markdown,text/plain" style="display:none;" />
+        </div>
+      </section>
+
+      <div class="admin-grid">
+        <!-- Left: Quick Workout Builder Form -->
+        <article class="workout-builder-card">
+          <div class="builder-card-header">
+            <div>
+              <p class="eyebrow">Workout Creator</p>
+              <h2>Add New Exercise</h2>
+            </div>
+            <span class="badge-cat">Live Sync</span>
+          </div>
+          <p class="muted">Prescribe an exercise with sets, reps, and coaching cues. It instantly appears in student schedules.</p>
+
+          <form id="workout-builder-form" class="builder-form" novalidate>
+            <div class="builder-form-row">
+              <label class="field">
+                <span>Assign to Day</span>
+                <select name="dayId" required>
+                  ${days.map(d => `<option value="${d.id}" ${d.id === selectedDayId ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Category</span>
+                <select name="category">
+                  <option value="jump">Jump / Technical</option>
+                  <option value="plyometric">Plyometric / Bounds</option>
+                  <option value="sprint">Sprint / Speed</option>
+                  <option value="strength">Strength / Power</option>
+                  <option value="core">Core / Posture</option>
+                  <option value="mobility">Mobility / Warmup</option>
+                  <option value="recovery">Recovery / Cooldown</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="field">
+              <span>Section / Focus Area</span>
+              <div class="preset-pill-row">
+                ${presetSections.map(preset => `
+                  <button class="preset-pill ${preset === "Dynamic Warm-Up" ? "is-selected" : ""}" type="button" data-builder-set-section="${escapeAttribute(preset)}">
+                    ${escapeHtml(preset)}
+                  </button>
+                `).join("")}
+              </div>
+              <input name="sectionTitle" id="builder-section-input" type="text" value="Dynamic Warm-Up" placeholder="e.g. Plyometrics & Bounds" required />
+            </div>
+
+            <label class="field">
+              <span>Exercise Name</span>
+              <input name="label" type="text" placeholder="e.g. 5-Stride Approach Pop-Offs or Box Drop to Hurdle Hop" required />
+            </label>
+
+            <label class="field">
+              <span>Sets & Reps / Intensity</span>
+              <input name="setsReps" type="text" placeholder="e.g. 4 sets x 5 reps (full rest) or 3x30m flys" />
+            </label>
+
+            <label class="field">
+              <span>Coach Cues / Technical Instructions</span>
+              <textarea name="notes" rows="2" placeholder="e.g. Strike under hip with stiff ankle; tall chest at takeoff"></textarea>
+            </label>
+
+            <p class="form-error" id="builder-error" role="alert"></p>
+
+            <div class="builder-form-actions">
+              <button class="primary-action" type="submit">+ Add Exercise to Schedule</button>
+            </div>
+          </form>
+        </article>
+
+        <!-- Right: Weekly Schedule Manager -->
+        <article class="weekly-schedule-manager">
+          <div class="builder-card-header">
+            <div>
+              <p class="eyebrow">Weekly Master Schedule</p>
+              <h2>Current Squad Workouts</h2>
+            </div>
+            <button class="danger-action compact-btn" type="button" data-clear-all-workouts>
+              Clear All Workouts
+            </button>
+          </div>
+          <p class="muted">Review workouts scheduled across the 7-day training week. You can delete or add items directly.</p>
+
+          <div class="admin-days-list">
+            ${days.map(d => {
+              const dayItemsCount = d.sections.reduce((acc, s) => acc + s.items.length, 0);
+              return `
+                <div class="admin-day-accordion">
+                  <div class="admin-day-summary">
+                    <div class="admin-day-left">
+                      <strong>${escapeHtml(d.name)}</strong>
+                      <span class="admin-day-badge">${dayItemsCount} exercises</span>
+                    </div>
+                    <button class="ghost-action compact-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(d.id)}">
+                      + Add
+                    </button>
+                  </div>
+
+                  ${d.sections.length > 0 ? `
+                    <div class="admin-day-sections">
+                      ${d.sections.map(s => `
+                        <div class="admin-sub-section">
+                          <div class="admin-sub-section-title">${escapeHtml(s.title)} (${s.items.length})</div>
+                          <div class="admin-items-list">
+                            ${s.items.map(item => `
+                              <div class="admin-item-row">
+                                <div class="admin-item-info">
+                                  <span class="admin-item-title">${escapeHtml(item.label)}</span>
+                                  <div class="todo-meta-badges">
+                                    ${item.setsReps ? `<span class="badge-sets">${escapeHtml(item.setsReps)}</span>` : ""}
+                                    ${item.category ? `<span class="badge-cat">${escapeHtml(item.category)}</span>` : ""}
+                                  </div>
+                                  ${item.notes ? `<div class="todo-coach-notes"><span class="coach-note-icon">💡</span> ${escapeHtml(item.notes)}</div>` : ""}
+                                </div>
+                                <button class="coach-delete-item-btn" type="button" data-delete-workout-item data-item-id="${escapeAttribute(item.id)}" title="Delete exercise">✕</button>
+                              </div>
+                            `).join("")}
+                          </div>
+                        </div>
+                      `).join("")}
+                    </div>
+                  ` : `
+                    <p class="admin-empty-day-hint">No exercises scheduled for ${escapeHtml(d.name)}.</p>
+                  `}
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </article>
+      </div>
+    ` : `
+      <!-- Stats Analysis Tab -->
+      <div class="admin-analysis-grid">
+        <article class="analysis-card">
+          <div class="builder-card-header">
+            <div>
+              <p class="eyebrow">Squad Diagnostics</p>
+              <h2>Jumping Performance & Battery Tests</h2>
+            </div>
+            <button class="primary-action compact-btn" type="button" data-view="long-jump">
+              Evaluate Student
+            </button>
+          </div>
+          <p class="muted">Performance tests provide composite scores, z-score statistical baselines, and percentile ranks across squad events.</p>
+
+          <div class="analysis-battery-grid">
+            <div class="battery-tile">
+              <span class="battery-metric-label">Speed & Elasticity</span>
+              <strong>30m Sprint & CMJ</strong>
+              <p>Measures max sprint velocity and reactive leg power. High CMJ + sub-4.2s 30m correlates with 6.5m+ LJ potential.</p>
+            </div>
+            <div class="battery-tile">
+              <span class="battery-metric-label">Horizontal Power</span>
+              <strong>Standing Broad & 5-Bound</strong>
+              <p>Key indicators of horizontal force application and eccentric tolerance on touchdown.</p>
+            </div>
+            <div class="battery-tile">
+              <span class="battery-metric-label">Triple Jump Ratio</span>
+              <strong>Phase Balance Analysis</strong>
+              <p>Target distribution: Hop 35%, Step 30%, Jump 35%. Identifies step collapse and energy preservation.</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="analysis-card">
+          <div class="builder-card-header">
+            <div>
+              <p class="eyebrow">Test Archive</p>
+              <h2>Logged Squad Evaluations (${evaluations.length})</h2>
+            </div>
+            <button class="secondary-action compact-btn" type="button" data-view="comparison">
+              Compare Attempts
+            </button>
+          </div>
+
+          ${evaluations.length === 0 ? `
+            <div class="empty-plan-card">
+              <p>No evaluations recorded yet. Take field measurements with video verification to begin tracking squad trends.</p>
+              <button class="primary-action" type="button" data-view="long-jump">Record First Evaluation</button>
+            </div>
+          ` : `
+            <div class="admin-eval-table-wrapper">
+              <table class="admin-eval-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Event</th>
+                    <th>Test</th>
+                    <th>Result</th>
+                    <th>Score</th>
+                    <th>Rating</th>
+                    <th>Video</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${evaluations.slice(0, 15).map(rec => {
+                    const testDef = getTestDefinition(rec.eventType, rec.testId);
+                    return `
+                      <tr>
+                        <td>${escapeHtml(rec.createdAt.slice(0, 10))}</td>
+                        <td>${rec.eventType === "long-jump" ? "LJ" : "TJ"}</td>
+                        <td><strong>${escapeHtml(testDef?.title ?? rec.testId)}</strong></td>
+                        <td>${escapeHtml(String(rec.resultValue))} ${escapeHtml(rec.resultUnit)}</td>
+                        <td>${formatScore(rec.score)}/100</td>
+                        <td><span class="rating-badge rating-${rec.rating.toLowerCase().replace(/\s+/g, "-")}">${escapeHtml(rec.rating)}</span></td>
+                        <td>${rec.video ? "🎥 Yes" : "—"}</td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </article>
+      </div>
+    `}
   `;
 }
 
@@ -1826,11 +2414,14 @@ function bindTodoView(): void {
     });
   }
 
-  qs<HTMLInputElement>("#plan-import").addEventListener("change", (event) => {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (!file) return;
-    void importMarkdownPlan(file);
-  });
+  const planImport = document.querySelector<HTMLInputElement>("#plan-import");
+  if (planImport) {
+    planImport.addEventListener("change", (event) => {
+      const file = (event.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      void importMarkdownPlan(file);
+    });
+  }
 }
 
 async function saveTodoCheckbox(checkbox: HTMLInputElement): Promise<void> {
@@ -1920,13 +2511,12 @@ async function saveGuideEdit(form: HTMLFormElement): Promise<void> {
   render();
 }
 
-async function importMarkdownPlan(file: File): Promise<void> {
+async function importMarkdownText(markdown: string): Promise<void> {
   if (!trainingPlan) return;
-  const markdown = await file.text();
   const nextPlan = parseMarkdownChecklist(markdown, trainingPlan);
 
   if (authSession) {
-    const cloudOk = await saveCloudFirst("imported training plan", () =>
+    const cloudOk = await saveCloudFirst("imported weekly training plan", () =>
       upsertCloudTrainingPlan(authSession!.user.id, nextPlan)
     );
     if (!cloudOk) {
@@ -1937,8 +2527,15 @@ async function importMarkdownPlan(file: File): Promise<void> {
   trainingPlan = nextPlan;
   await saveTrainingPlan(trainingPlan);
   todoProgress = await listTodoProgress(trainingPlan.id);
-  notice = `Markdown plan imported ${authSession ? "and synced" : "locally"}. Known exercises were linked to how-to guides.`;
+  const totalItems = countPlanItems(trainingPlan);
+  notice = `Whole week plan imported successfully (${totalItems} total exercises scheduled). Linked to how-to guides.`;
+  markdownModalOpen = false;
   render();
+}
+
+async function importMarkdownPlan(file: File): Promise<void> {
+  const markdown = await file.text();
+  await importMarkdownText(markdown);
 }
 
 function bindOnboarding(): void {
@@ -2081,6 +2678,44 @@ function bindAppShell(): void {
       render();
     });
   });
+
+  qsa<HTMLButtonElement>("[data-open-add-workout]").forEach((button) => {
+    button.addEventListener("click", () => {
+      workoutModalOpen = true;
+      if (button.dataset.dayId) workoutModalDayId = button.dataset.dayId;
+      if (button.dataset.sectionTitle) workoutModalSectionTitle = button.dataset.sectionTitle;
+      render();
+    });
+  });
+
+  qsa<HTMLButtonElement>("[data-delete-workout-item]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const itemId = button.dataset.itemId;
+      if (itemId) {
+        void deleteWorkoutItem(button.dataset.scope ?? "", itemId);
+      }
+    });
+  });
+
+  qsa<HTMLElement>("[data-open-markdown-modal]").forEach((button) => {
+    button.addEventListener("click", () => {
+      markdownModalOpen = true;
+      render();
+    });
+  });
+
+  const adminPlanImport = document.querySelector<HTMLInputElement>("#admin-plan-import");
+  if (adminPlanImport) {
+    adminPlanImport.addEventListener("change", (event) => {
+      const file = (event.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      void importMarkdownPlan(file);
+    });
+  }
+
+  bindWorkoutModalEvents();
+  bindMarkdownModalEvents();
 }
 
 async function signOut(): Promise<void> {
@@ -2159,11 +2794,15 @@ function bindProfileView(): void {
       return;
     }
 
+    const roleSelect = form.querySelector<HTMLSelectElement>("#profile-role");
+    const role: UserRole = (roleSelect?.value as UserRole) || profile.role || (parsedProfile.username.toLowerCase() === "bibinsanju" ? "coach" : "athlete");
+
     const nextProfile: AthleteProfile = {
       ...profile,
       username: parsedProfile.username,
       dob: parsedProfile.dob,
       events: parsedProfile.events,
+      role,
       updatedAt: new Date().toISOString(),
     };
 
@@ -2178,9 +2817,275 @@ function bindProfileView(): void {
     profile = nextProfile;
     await saveProfile(profile);
     activeView = "dashboard";
-    notice = authSession ? "Profile updated and synced." : "Profile updated locally.";
+    notice = authSession ? "Profile and role updated and synced." : "Profile updated locally.";
     render();
   });
+}
+
+async function addWorkoutItem(
+  dayId: string,
+  sectionTitle: string,
+  itemData: {
+    label: string;
+    setsReps?: string;
+    category?: ExerciseCategory;
+    notes?: string;
+    exerciseId?: string;
+  }
+): Promise<void> {
+  if (!trainingPlan) return;
+
+  const targetDay = trainingPlan.days.find((d) => d.id === dayId);
+  if (!targetDay) return;
+
+  let targetSection = targetDay.sections.find(
+    (s) => s.title.toLowerCase().trim() === sectionTitle.toLowerCase().trim()
+  );
+
+  if (!targetSection) {
+    const slug = sectionTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    targetSection = {
+      id: `${dayId}-${slug || "custom"}-${Date.now().toString(36)}`,
+      title: sectionTitle.trim(),
+      items: [],
+    };
+    targetDay.sections.push(targetSection);
+  }
+
+  const newItem = createWorkoutItem(itemData.label, {
+    setsReps: itemData.setsReps,
+    category: itemData.category,
+    notes: itemData.notes,
+    exerciseId: itemData.exerciseId,
+  });
+
+  targetSection.items.push(newItem);
+  await saveTrainingPlan(trainingPlan);
+
+  if (authSession) {
+    void saveCloudFirst("training plan workout", () =>
+      upsertCloudTrainingPlan(authSession!.user.id, trainingPlan!)
+    );
+  }
+
+  notice = `Added "${itemData.label}" to ${targetDay.name} (${targetSection.title}).`;
+  render();
+}
+
+async function deleteWorkoutItem(_scope: string, itemId: string): Promise<void> {
+  if (!trainingPlan || !isCoach()) return;
+
+  let found = false;
+
+  for (const day of trainingPlan.days) {
+    for (const section of day.sections) {
+      const idx = section.items.findIndex((item) => item.id === itemId);
+      if (idx !== -1) {
+        section.items.splice(idx, 1);
+        found = true;
+        break;
+      }
+    }
+    day.sections = day.sections.filter((s) => s.items.length > 0);
+    if (found) break;
+  }
+
+  if (!found) {
+    const dailyIdx = trainingPlan.dailyChecklist.findIndex((i) => i.id === itemId);
+    if (dailyIdx !== -1) {
+      trainingPlan.dailyChecklist.splice(dailyIdx, 1);
+      found = true;
+    }
+  }
+
+  if (found) {
+    await saveTrainingPlan(trainingPlan);
+    if (authSession) {
+      void saveCloudFirst("delete workout item", () =>
+        upsertCloudTrainingPlan(authSession!.user.id, trainingPlan!)
+      );
+    }
+    notice = "Exercise removed from training plan.";
+    render();
+  }
+}
+
+async function clearAllWorkouts(): Promise<void> {
+  if (!trainingPlan || !isCoach()) return;
+  if (!confirm("Are you sure you want to clear all workouts for every day? This cannot be undone.")) {
+    return;
+  }
+
+  trainingPlan = createDefaultTrainingPlan();
+  await saveTrainingPlan(trainingPlan);
+  if (authSession) {
+    void saveCloudFirst("clear all workouts", () =>
+      upsertCloudTrainingPlan(authSession!.user.id, trainingPlan!)
+    );
+  }
+  notice = "All workouts cleared. Training plan reset to a clean slate.";
+  render();
+}
+
+function bindWorkoutModalEvents(): void {
+  qsa<HTMLElement>("[data-close-workout-modal]").forEach((el) => {
+    el.addEventListener("click", () => {
+      workoutModalOpen = false;
+      render();
+    });
+  });
+
+  qsa<HTMLButtonElement>("[data-set-section]").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const section = pill.dataset.setSection;
+      const input = document.querySelector<HTMLInputElement>('#modal-workout-form input[name="sectionTitle"]');
+      if (input && section) {
+        input.value = section;
+        workoutModalSectionTitle = section;
+        qsa<HTMLButtonElement>("[data-set-section]").forEach((p) => p.classList.remove("is-selected"));
+        pill.classList.add("is-selected");
+      }
+    });
+  });
+
+  const modalForm = document.querySelector<HTMLFormElement>("#modal-workout-form");
+  if (modalForm) {
+    modalForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(modalForm);
+      const dayId = formData.get("dayId") as string;
+      const sectionTitle = (formData.get("sectionTitle") as string)?.trim() || "Dynamic Warm-Up";
+      const label = (formData.get("label") as string)?.trim();
+      const setsReps = (formData.get("setsReps") as string)?.trim() || undefined;
+      const category = (formData.get("category") as ExerciseCategory) || undefined;
+      const notes = (formData.get("notes") as string)?.trim() || undefined;
+
+      const errEl = document.querySelector<HTMLElement>("#modal-workout-error");
+      if (!label) {
+        if (errEl) errEl.textContent = "Please enter an exercise name.";
+        return;
+      }
+      if (errEl) errEl.textContent = "";
+
+      const exerciseId = trainingPlan ? matchExerciseId(label, trainingPlan.exerciseGuides) : undefined;
+      workoutModalOpen = false;
+      await addWorkoutItem(dayId, sectionTitle, {
+        label,
+        setsReps,
+        category,
+        notes,
+        exerciseId,
+      });
+    });
+  }
+}
+
+function bindMarkdownModalEvents(): void {
+  qsa<HTMLElement>("[data-close-markdown-modal]").forEach((el) => {
+    el.addEventListener("click", () => {
+      markdownModalOpen = false;
+      render();
+    });
+  });
+
+  const loadSampleBtn = document.querySelector<HTMLButtonElement>("#load-sample-md-btn");
+  if (loadSampleBtn) {
+    loadSampleBtn.addEventListener("click", () => {
+      const textarea = document.querySelector<HTMLTextAreaElement>("#markdown-import-textarea");
+      if (textarea) {
+        textarea.value = SAMPLE_WEEKLY_MARKDOWN;
+      }
+    });
+  }
+
+  const clearBtn = document.querySelector<HTMLButtonElement>("#clear-md-btn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      const textarea = document.querySelector<HTMLTextAreaElement>("#markdown-import-textarea");
+      if (textarea) {
+        textarea.value = "";
+      }
+    });
+  }
+
+  const form = document.querySelector<HTMLFormElement>("#markdown-import-form");
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const textarea = document.querySelector<HTMLTextAreaElement>("#markdown-import-textarea");
+      const text = textarea?.value.trim() ?? "";
+      const errorEl = document.querySelector<HTMLElement>("#markdown-import-error");
+
+      if (!text) {
+        if (errorEl) errorEl.textContent = "Please enter or paste markdown text.";
+        return;
+      }
+      if (errorEl) errorEl.textContent = "";
+
+      await importMarkdownText(text);
+    });
+  }
+}
+
+function bindAdminView(): void {
+  qsa<HTMLButtonElement>("[data-admin-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.adminTab as "workouts" | "analysis" | undefined;
+      if (tab) {
+        adminTab = tab;
+        render();
+      }
+    });
+  });
+
+  qsa<HTMLButtonElement>("[data-builder-set-section]").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const section = pill.dataset.builderSetSection;
+      const input = document.querySelector<HTMLInputElement>("#builder-section-input");
+      if (input && section) {
+        input.value = section;
+        qsa<HTMLButtonElement>("[data-builder-set-section]").forEach((p) => p.classList.remove("is-selected"));
+        pill.classList.add("is-selected");
+      }
+    });
+  });
+
+  const builderForm = document.querySelector<HTMLFormElement>("#workout-builder-form");
+  if (builderForm) {
+    builderForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(builderForm);
+      const dayId = formData.get("dayId") as string;
+      const sectionTitle = (formData.get("sectionTitle") as string)?.trim() || "Dynamic Warm-Up";
+      const label = (formData.get("label") as string)?.trim();
+      const setsReps = (formData.get("setsReps") as string)?.trim() || undefined;
+      const category = (formData.get("category") as ExerciseCategory) || undefined;
+      const notes = (formData.get("notes") as string)?.trim() || undefined;
+
+      const errEl = document.querySelector<HTMLElement>("#builder-error");
+      if (!label) {
+        if (errEl) errEl.textContent = "Please enter an exercise name.";
+        return;
+      }
+      if (errEl) errEl.textContent = "";
+
+      const exerciseId = trainingPlan ? matchExerciseId(label, trainingPlan.exerciseGuides) : undefined;
+      await addWorkoutItem(dayId, sectionTitle, {
+        label,
+        setsReps,
+        category,
+        notes,
+        exerciseId,
+      });
+    });
+  }
+
+  const clearBtn = document.querySelector<HTMLButtonElement>("[data-clear-all-workouts]");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      void clearAllWorkouts();
+    });
+  }
 }
 
 function openEvaluation(eventType: EventType, testId: string, recordId?: string): void {
