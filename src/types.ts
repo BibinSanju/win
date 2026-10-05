@@ -29,6 +29,7 @@ export interface AthleteProfile {
   createdAt: string;
   updatedAt: string;
   role?: UserRole;
+  morningSessionsEnabled?: boolean;
 }
 
 export interface EvaluationRecord {
@@ -79,6 +80,7 @@ export interface TrainingTodoItem {
   setsReps?: string;
   notes?: string;
   category?: ExerciseCategory;
+  sessionType?: "morning" | "main";
 }
 
 export interface TrainingSection {

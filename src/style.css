@@ -3238,3 +3238,440 @@ tbody tr:hover {
   }
 }
 
+/* ──────────────────────────────────────────────────────────── */
+/* Todo Controls Bar & Coach Actions (Mobile Polish)            */
+/* ──────────────────────────────────────────────────────────── */
+
+.todo-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.week-picker-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 5px 12px 5px 14px;
+  border-radius: 10px;
+  transition: border-color 0.15s ease;
+}
+
+.week-picker-pill:focus-within {
+  border-color: #e5b240;
+}
+
+.week-picker-label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #e5b240;
+}
+
+.week-picker-select {
+  background: transparent;
+  border: none;
+  color: #f0f2f5;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  outline: none;
+}
+
+.week-picker-select option {
+  background: #14171d;
+  color: #f0f2f5;
+}
+
+.coach-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.coach-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px !important;
+}
+
+.btn-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+/* Day Eyebrow & Badges */
+.day-eyebrow-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+  flex-wrap: wrap;
+}
+
+.morning-active-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #f7cb63;
+  background: rgba(229, 178, 64, 0.15);
+  border: 1px solid rgba(229, 178, 64, 0.35);
+  padding: 1px 7px;
+  border-radius: 999px;
+  line-height: 1.3;
+}
+
+.day-card-badge-box {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.day-progress-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(229, 178, 64, 0.1);
+  border: 1px solid rgba(229, 178, 64, 0.3);
+  border-radius: 10px;
+  padding: 6px 12px;
+  min-width: 58px;
+}
+
+.day-progress-fraction {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #f7cb63;
+  line-height: 1;
+}
+
+.day-progress-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9aa2b2;
+  margin-top: 2px;
+}
+
+.day-status-chip.rest-chip {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #9aa2b2;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 5px 12px;
+  border-radius: 999px;
+}
+
+/* Empty Day State Card */
+.empty-day-state-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 2.25rem 1.5rem;
+  text-align: center;
+  margin: 1rem 0;
+}
+
+.empty-day-visual {
+  font-size: 2.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.empty-day-state-card h3 {
+  font-size: 1.1rem;
+  margin: 0 0 0.4rem;
+  color: #f0f2f5;
+}
+
+.empty-day-state-card p {
+  font-size: 0.86rem;
+  color: #8d95a5;
+  margin: 0 0 1.25rem;
+  max-width: 440px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.empty-day-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ──────────────────────────────────────────────────────────── */
+/* Morning Sessions Container & Header                          */
+/* ──────────────────────────────────────────────────────────── */
+
+.morning-session-container {
+  margin-bottom: 1.25rem;
+  background: rgba(229, 178, 64, 0.025);
+  border: 1px solid rgba(229, 178, 64, 0.22);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.morning-session-container.is-optional-morning {
+  opacity: 0.78;
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.morning-session-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(229, 178, 64, 0.14) 0%, rgba(20, 23, 29, 0.85) 100%);
+  border-bottom: 1px solid rgba(229, 178, 64, 0.18);
+  flex-wrap: wrap;
+}
+
+.morning-banner-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.morning-sun-icon {
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.morning-banner-title strong {
+  display: block;
+  font-size: 0.94rem;
+  color: #f7cb63;
+}
+
+.morning-banner-title small {
+  display: block;
+  font-size: 0.74rem;
+  color: #9aa2b2;
+}
+
+.morning-status-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.morning-status-pill.active {
+  background: rgba(229, 178, 64, 0.22);
+  color: #f7cb63;
+  border: 1px solid rgba(229, 178, 64, 0.45);
+}
+
+.morning-status-pill.optional {
+  background: rgba(255, 255, 255, 0.06);
+  color: #9aa2b2;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.todo-section-morning {
+  border-left: 3px solid #e5b240 !important;
+}
+
+.morning-empty-hint {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: #c9b06a;
+  background: rgba(229, 178, 64, 0.06);
+  border: 1px solid rgba(229, 178, 64, 0.18);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+/* ──────────────────────────────────────────────────────────── */
+/* Role Selection Cards (Auth & Onboarding)                     */
+/* ──────────────────────────────────────────────────────────── */
+
+.role-select-group {
+  margin: 1rem 0;
+}
+
+.field-legend {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #e5b240;
+  margin-bottom: 6px;
+}
+
+.role-choice-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.role-choice-card {
+  display: block;
+  position: relative;
+  cursor: pointer;
+  margin: 0;
+}
+
+.role-choice-card input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.role-card-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  transition: all 0.15s ease;
+  min-height: 64px;
+  box-sizing: border-box;
+}
+
+.role-choice-card:hover .role-card-inner {
+  border-color: rgba(229, 178, 64, 0.4);
+}
+
+.role-choice-card input[type="radio"]:checked + .role-card-inner {
+  background: rgba(229, 178, 64, 0.14);
+  border-color: #e5b240;
+  box-shadow: 0 0 14px rgba(229, 178, 64, 0.25);
+}
+
+.role-emoji {
+  font-size: 1.35rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.role-text strong {
+  display: block;
+  font-size: 0.88rem;
+  color: #f0f2f5;
+  margin-bottom: 2px;
+}
+
+.role-text small {
+  display: block;
+  font-size: 0.72rem;
+  color: #8d95a5;
+  line-height: 1.3;
+}
+
+.morning-session-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #c0c6d2;
+  cursor: pointer;
+  margin: 0.6rem 0 1rem;
+}
+
+/* ──────────────────────────────────────────────────────────── */
+/* Morning Session Squad Controls in Coach Hub                  */
+/* ──────────────────────────────────────────────────────────── */
+
+.morning-roster-box {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.morning-roster-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.morning-roster-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.morning-roster-user strong {
+  display: block;
+  font-size: 0.94rem;
+  color: #f0f2f5;
+}
+
+.morning-roster-user small {
+  display: block;
+  font-size: 0.74rem;
+  color: #8d95a5;
+}
+
+/* Mobile Media Queries */
+@media (max-width: 640px) {
+  .todo-controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
+  }
+
+  .week-picker-pill {
+    width: 100%;
+    justify-content: space-between;
+    box-sizing: border-box;
+  }
+
+  .coach-quick-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .coach-action-btn {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+    box-sizing: border-box;
+  }
+
+  .role-choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .morning-roster-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .morning-roster-status button {
+    width: 100%;
+    text-align: center;
+  }
+}
+

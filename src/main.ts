@@ -62,6 +62,7 @@ import type {
   TodoSectionPreference,
   TrainingDayPlan,
   TrainingPlanTemplate,
+  TrainingSection,
   TrainingTodoItem,
   UserRole,
 } from "./types";
@@ -329,6 +330,41 @@ function render(): void {
 
 
 
+function renderRoleChoiceFields(defaultRole: UserRole = "athlete", defaultMorning: boolean = false): string {
+  return `
+    <div class="role-select-group">
+      <span class="field-legend">Select Account Role</span>
+      <div class="role-choice-grid">
+        <label class="role-choice-card">
+          <input type="radio" name="role" value="athlete" ${defaultRole === "athlete" ? "checked" : ""} />
+          <div class="role-card-inner">
+            <span class="role-emoji">🏃‍♂️</span>
+            <div class="role-text">
+              <strong>Athlete / Student</strong>
+              <small>View training schedule, check off exercises & track test PRs</small>
+            </div>
+          </div>
+        </label>
+        <label class="role-choice-card">
+          <input type="radio" name="role" value="coach" ${defaultRole === "coach" ? "checked" : ""} />
+          <div class="role-card-inner">
+            <span class="role-emoji">📋</span>
+            <div class="role-text">
+              <strong>Coach / Admin</strong>
+              <small>Prescribe workouts, import weekly markdown & squad stats</small>
+            </div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <label class="morning-session-toggle-label">
+      <input type="checkbox" name="morningSessionsEnabled" ${defaultMorning ? "checked" : ""} />
+      <span>🌅 Enable Morning Training Sessions (AM mobility & activation)</span>
+    </label>
+  `;
+}
+
 function renderAuthScreen(): string {
   const isSignUp = authMode === "sign-up";
   const title = isSignUp ? "Create your WIN account" : "Sign in to WIN";
@@ -351,6 +387,8 @@ function renderAuthScreen(): string {
           ${renderEventChoice("long-jump", authDraftEvents.includes("long-jump"))}
           ${renderEventChoice("triple-jump", authDraftEvents.includes("triple-jump"))}
         </fieldset>
+
+        ${renderRoleChoiceFields("athlete", false)}
       `
     : "";
 
@@ -437,6 +475,8 @@ function renderOnboarding(): string {
           ${renderEventChoice("long-jump", true)}
           ${renderEventChoice("triple-jump", true)}
         </fieldset>
+
+        ${renderRoleChoiceFields("athlete", false)}
 
         <p class="form-error" id="onboarding-error" role="alert"></p>
         <button class="primary-action" type="submit">Create profile</button>
@@ -867,25 +907,45 @@ function renderEventCard(eventType: EventType): string {
   `;
 }
 
+function isMorningSection(section: TrainingSection): boolean {
+  return (
+    /morning|am\s*session|early\s*activation/i.test(section.title) ||
+    section.items.some((i: TrainingTodoItem) => i.sessionType === "morning")
+  );
+}
+
 function renderTodoView(): string {
   if (!trainingPlan) return "";
 
   const day = trainingPlan.days.find((candidate) => candidate.id === selectedDayId) ?? trainingPlan.days[0];
   if (!day) return "";
 
+  const coachMode = isCoach();
+  const athleteHasMorning = Boolean(profile?.morningSessionsEnabled);
+
   const phase = getPhaseForWeek(trainingPlan, selectedWeek);
   const visibleIds = collectVisibleProgressIds(trainingPlan, day, phase);
   const completedCount = visibleIds.filter((id) => isTodoComplete(id)).length;
   const completion = visibleIds.length > 0 ? Math.round((completedCount / visibleIds.length) * 100) : 0;
   const guideCount = Object.keys(trainingPlan.exerciseGuides).length;
-  const coachMode = isCoach();
+
+  const dayAllItems = day.sections.flatMap((s) => s.items);
+  const dayTotalExercises = dayAllItems.length;
+  const dayCompletedExercises = dayAllItems.filter((item) => {
+    return day.sections.some((s) =>
+      isTodoComplete(makeProgressId(`week-${selectedWeek}-${day.id}-${s.id}`, item.id))
+    );
+  }).length;
+
+  const morningSections = day.sections.filter((s) => isMorningSection(s));
+  const mainSections = day.sections.filter((s) => !isMorningSection(s));
 
   return `
     <section class="page-header">
       <div>
         <div class="todo-title-row">
-          <p class="eyebrow">Training todo</p>
-          ${coachMode ? `<span class="coach-tag">Coach Editing Mode</span>` : `<span class="athlete-tag">Athlete Mode (Mark as Done Only)</span>`}
+          <p class="eyebrow">Training Schedule</p>
+          ${coachMode ? `<span class="coach-tag">Coach Editing Mode</span>` : `<span class="athlete-tag">Athlete Mode (View & Mark Done)</span>`}
         </div>
         <h1>${escapeHtml(trainingPlan.title)}</h1>
         <p class="lead">${escapeHtml(trainingPlan.trainingTime)} | ${escapeHtml(trainingPlan.targetPeriod)}</p>
@@ -897,29 +957,26 @@ function renderTodoView(): string {
       </div>
     </section>
 
-    <section class="todo-controls">
-      <label class="field compact-field">
-        <span>Week</span>
-        <select id="week-select">
+    <!-- Sleek, balanced toolbar (No squished select, clean mobile buttons) -->
+    <section class="todo-controls-bar">
+      <div class="week-picker-pill">
+        <span class="week-picker-label">Schedule Week</span>
+        <select id="week-select" class="week-picker-select" aria-label="Select training week">
           ${Array.from({ length: 12 }, (_, index) => {
             const week = index + 1;
             return `<option value="${week}" ${week === selectedWeek ? "selected" : ""}>Week ${week}</option>`;
           }).join("")}
         </select>
-      </label>
+      </div>
 
       ${coachMode ? `
-        <div class="coach-actions-bar">
-          <button class="primary-action coach-add-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
-            + Add Workout to ${escapeHtml(day.name)}
+        <div class="coach-quick-actions">
+          <button class="primary-action compact-btn coach-action-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
+            <span class="btn-icon">＋</span> Add Workout
           </button>
-          <button class="secondary-action coach-add-btn" type="button" data-open-markdown-modal>
-            📝 Paste Week Plan (.md)
+          <button class="secondary-action compact-btn coach-action-btn" type="button" data-open-markdown-modal title="Import weekly markdown schedule or upload .md">
+            <span class="btn-icon">📝</span> Import Week (.md)
           </button>
-          <div class="import-control">
-            <input id="plan-import" type="file" accept=".md,text/markdown,text/plain" />
-            <label class="ghost-action" for="plan-import" style="cursor: pointer;">📁 Upload .md</label>
-          </div>
         </div>
       ` : `
         <div class="athlete-info-pill">
@@ -946,38 +1003,76 @@ function renderTodoView(): string {
         <article class="todo-day-card">
           <div class="todo-card-header">
             <div>
-              <p class="eyebrow">Week ${selectedWeek} | ${day.name}</p>
+              <div class="day-eyebrow-row">
+                <p class="eyebrow">Week ${selectedWeek} | ${escapeHtml(day.name)}</p>
+                ${athleteHasMorning ? `<span class="morning-active-tag">🌅 Morning Enabled</span>` : ""}
+              </div>
               <h2>${escapeHtml(day.title)}</h2>
-              <p>${escapeHtml(day.focus)}</p>
+              <p class="day-focus-desc">${escapeHtml(day.focus)}</p>
             </div>
-            ${renderScoreGauge(completion)}
+            <div class="day-card-badge-box">
+              ${dayTotalExercises > 0 ? `
+                <div class="day-progress-badge">
+                  <span class="day-progress-fraction">${dayCompletedExercises}/${dayTotalExercises}</span>
+                  <span class="day-progress-label">done</span>
+                </div>
+              ` : `
+                <span class="day-status-chip rest-chip">Rest / Free Day</span>
+              `}
+            </div>
           </div>
-          ${coachMode ? `
-            <div class="todo-day-card-footer">
-              <button class="ghost-action text-action" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
-                + Add Exercise to ${escapeHtml(day.name)}
-              </button>
-            </div>
-          ` : ""}
         </article>
 
         ${day.sections.length === 0 && trainingPlan.dailyChecklist.length === 0 ? `
-          <div class="empty-plan-card">
-            <div class="empty-plan-icon">🏃‍♂️</div>
-            <h3>No workouts scheduled for ${escapeHtml(day.name)}</h3>
-            <p>${coachMode ? "Add drills, plyometrics, sprints, or strength exercises for your athletes." : "Rest or recovery day. Check other days for scheduled workouts."}</p>
+          <div class="empty-day-state-card">
+            <div class="empty-day-visual">🏃‍♂️</div>
+            <h3>No Workouts Scheduled for ${escapeHtml(day.name)}</h3>
+            <p class="muted">${coachMode ? "Plan track exercises, plyometrics, or sprints for your athletes." : "Rest or recovery day. Check the other day tabs for this week's scheduled workouts."}</p>
             ${coachMode ? `
-              <button class="primary-action coach-add-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
-                + Add First Workout
-              </button>
+              <div class="empty-day-actions">
+                <button class="primary-action compact-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
+                  ＋ Add Workout to ${escapeHtml(day.name)}
+                </button>
+                <button class="secondary-action compact-btn" type="button" data-open-markdown-modal>
+                  📝 Import Week (.md)
+                </button>
+              </div>
             ` : ""}
           </div>
         ` : ""}
 
         ${trainingPlan.dailyChecklist.length > 0 ? renderTodoSection("daily", "Daily Training Checklist", trainingPlan.dailyChecklist) : ""}
-        ${day.sections
-          .map((section) => renderTodoSection(`week-${selectedWeek}-${day.id}-${section.id}`, section.title, section.items, section.note, day.id))
+
+        ${morningSections.length > 0 ? `
+          <section class="morning-session-container ${!athleteHasMorning && !coachMode ? "is-optional-morning" : ""}">
+            <div class="morning-session-banner">
+              <div class="morning-banner-title">
+                <span class="morning-sun-icon">🌅</span>
+                <div>
+                  <strong>Morning Training Session</strong>
+                  <small>Early mobility, central nervous system activation & core readiness</small>
+                </div>
+              </div>
+              ${!athleteHasMorning && !coachMode ? `
+                <span class="morning-status-pill optional">Optional for you</span>
+              ` : `
+                <span class="morning-status-pill active">Morning Routine</span>
+              `}
+            </div>
+            ${morningSections
+              .map((section) => renderTodoSection(`week-${selectedWeek}-${day.id}-${section.id}`, section.title, section.items, section.note, day.id, true))
+              .join("")}
+          </section>
+        ` : (athleteHasMorning && day.sections.length > 0 ? `
+          <div class="morning-empty-hint">
+            <span>🌅 Morning Sessions Enabled: Focus on hydration & light dynamic mobility today.</span>
+          </div>
+        ` : "")}
+
+        ${mainSections
+          .map((section) => renderTodoSection(`week-${selectedWeek}-${day.id}-${section.id}`, section.title, section.items, section.note, day.id, false))
           .join("")}
+
         ${phase.items.length > 0 ? renderTodoSection(`phase-${selectedWeek}`, `${phase.weekRange} - ${phase.title}`, phase.items, phase.goal) : ""}
         ${renderImportedSections(trainingPlan)}
       </div>
@@ -990,7 +1085,10 @@ function renderTodoView(): string {
             <p class="muted">Add workouts to any day or navigate to the Admin Hub for complete squad oversight.</p>
             <div class="coach-quick-btn-group">
               <button class="primary-action" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
-                + Add Workout
+                ＋ Add Workout to ${escapeHtml(day.name)}
+              </button>
+              <button class="secondary-action" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}" data-section-title="🌅 Morning Session: Activation & Mobility">
+                🌅 + Add Morning Session
               </button>
               <button class="secondary-action" type="button" data-view="admin">
                 Open Admin Hub
@@ -1042,14 +1140,15 @@ function renderTodoSection(
   title: string,
   items: TrainingTodoItem[],
   note?: string,
-  dayId?: string
+  dayId?: string,
+  isMorning?: boolean
 ): string {
   const collapsed = isTodoSectionCollapsed(scope);
   const completed = items.filter((todoItem) => isTodoComplete(makeProgressId(scope, todoItem.id))).length;
   const coachMode = isCoach();
 
   return `
-    <article class="todo-section ${collapsed ? "is-collapsed" : ""}">
+    <article class="todo-section ${collapsed ? "is-collapsed" : ""} ${isMorning ? "todo-section-morning" : ""}">
       <button
         class="todo-section-header"
         type="button"
@@ -1057,7 +1156,7 @@ function renderTodoSection(
         aria-expanded="${collapsed ? "false" : "true"}"
       >
         <div>
-          <h2>${escapeHtml(title)}</h2>
+          <h2>${isMorning ? "🌅 " : ""}${escapeHtml(title)}</h2>
           ${note ? `<p>${escapeHtml(note)}</p>` : ""}
         </div>
         <div class="section-header-right">
@@ -1658,6 +1757,11 @@ function renderProfileView(): string {
         <small class="field-hint">Coaches can add/delete workouts and access the Admin Hub. Toggle to Athlete to test the student view.</small>
       </label>
 
+      <label class="morning-session-toggle-label" style="margin: 0.75rem 0;">
+        <input type="checkbox" id="profile-morning-sessions" name="morningSessionsEnabled" ${profile.morningSessionsEnabled ? "checked" : ""} />
+        <span>🌅 Enable Morning Training Sessions (AM mobility, activation & drills)</span>
+      </label>
+
       <fieldset class="event-select">
         <legend>Events</legend>
         ${renderEventChoice("long-jump", profile.events.includes("long-jump"))}
@@ -1676,6 +1780,7 @@ function renderWorkoutModal(): string {
   const days = trainingPlan.days;
   const presetSections = [
     "Dynamic Warm-Up",
+    "🌅 Morning Activation",
     "Plyometrics & Bounds",
     "Technical Run-Up & Jumps",
     "Strength & Power",
@@ -1703,6 +1808,16 @@ function renderWorkoutModal(): string {
             </select>
           </label>
 
+          <label class="field">
+            <span>Session Timing</span>
+            <select name="sessionType">
+              <option value="main">Main Track Session (Afternoon / Evening)</option>
+              <option value="morning">🌅 Morning Session (Early Activation / Mobility)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="modal-form-row">
           <label class="field">
             <span>Category</span>
             <select name="category">
@@ -1834,6 +1949,7 @@ function renderAdminView(): string {
 
   const presetSections = [
     "Dynamic Warm-Up",
+    "🌅 Morning Activation",
     "Plyometrics & Bounds",
     "Technical Run-Up & Jumps",
     "Strength & Power",
@@ -1864,7 +1980,7 @@ function renderAdminView(): string {
         🏋️ Workout Builder & Schedule
       </button>
       <button class="admin-tab ${adminTab === "analysis" ? "is-active" : ""}" type="button" data-admin-tab="analysis">
-        📊 Student Stats & Performance Analysis
+        📊 Student Stats & Morning Sessions
       </button>
     </div>
 
@@ -1910,6 +2026,16 @@ function renderAdminView(): string {
                 </select>
               </label>
 
+              <label class="field">
+                <span>Session Timing</span>
+                <select name="sessionType">
+                  <option value="main">Main Track Session (Afternoon / Evening)</option>
+                  <option value="morning">🌅 Morning Session (Early Activation / Mobility)</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="builder-form-row">
               <label class="field">
                 <span>Category</span>
                 <select name="category">
@@ -2020,8 +2146,41 @@ function renderAdminView(): string {
         </article>
       </div>
     ` : `
-      <!-- Stats Analysis Tab -->
+      <!-- Stats Analysis & Morning Session Management Tab -->
       <div class="admin-analysis-grid">
+        <!-- Morning Session Controls Card -->
+        <article class="analysis-card squad-settings-card">
+          <div class="builder-card-header">
+            <div>
+              <p class="eyebrow">Squad Management</p>
+              <h2>Morning Training Session Roster</h2>
+            </div>
+            <span class="badge-cat">Student Controls</span>
+          </div>
+          <p class="muted">Enable early morning training routines (sunrise activation, mobility & core prep) for student athletes. When enabled, morning drills appear with a golden sunrise header in their schedule.</p>
+
+          <div class="morning-roster-box">
+            <div class="morning-roster-row">
+              <div class="morning-roster-user">
+                <span class="mobile-avatar-circle">${escapeHtml(profile.username.charAt(0).toUpperCase())}</span>
+                <div>
+                  <strong>@${escapeHtml(profile.username)}</strong>
+                  <small>${profile.events.map((e) => EVENT_LABELS[e]).join(" / ")}</small>
+                </div>
+              </div>
+              <div class="morning-roster-status">
+                <button
+                  class="${profile.morningSessionsEnabled ? "secondary-action" : "primary-action"} compact-btn"
+                  type="button"
+                  id="toggle-morning-sessions-btn"
+                >
+                  ${profile.morningSessionsEnabled ? "🌅 Morning Sessions: Active (Tap to Disable)" : "🌅 Morning Sessions: Off (Tap to Enable)"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </article>
+
         <article class="analysis-card">
           <div class="builder-card-header">
             <div>
@@ -2796,6 +2955,8 @@ function bindProfileView(): void {
 
     const roleSelect = form.querySelector<HTMLSelectElement>("#profile-role");
     const role: UserRole = (roleSelect?.value as UserRole) || profile.role || (parsedProfile.username.toLowerCase() === "bibinsanju" ? "coach" : "athlete");
+    const morningInput = form.querySelector<HTMLInputElement>("#profile-morning-sessions");
+    const morningSessionsEnabled = Boolean(morningInput?.checked);
 
     const nextProfile: AthleteProfile = {
       ...profile,
@@ -2803,6 +2964,7 @@ function bindProfileView(): void {
       dob: parsedProfile.dob,
       events: parsedProfile.events,
       role,
+      morningSessionsEnabled,
       updatedAt: new Date().toISOString(),
     };
 
@@ -2831,6 +2993,7 @@ async function addWorkoutItem(
     category?: ExerciseCategory;
     notes?: string;
     exerciseId?: string;
+    sessionType?: "morning" | "main";
   }
 ): Promise<void> {
   if (!trainingPlan) return;
@@ -2857,6 +3020,7 @@ async function addWorkoutItem(
     category: itemData.category,
     notes: itemData.notes,
     exerciseId: itemData.exerciseId,
+    sessionType: itemData.sessionType,
   });
 
   targetSection.items.push(newItem);
@@ -2959,6 +3123,7 @@ function bindWorkoutModalEvents(): void {
       const setsReps = (formData.get("setsReps") as string)?.trim() || undefined;
       const category = (formData.get("category") as ExerciseCategory) || undefined;
       const notes = (formData.get("notes") as string)?.trim() || undefined;
+      const sessionType = (formData.get("sessionType") as "morning" | "main") || "main";
 
       const errEl = document.querySelector<HTMLElement>("#modal-workout-error");
       if (!label) {
@@ -2975,6 +3140,7 @@ function bindWorkoutModalEvents(): void {
         category,
         notes,
         exerciseId,
+        sessionType,
       });
     });
   }
@@ -3061,6 +3227,7 @@ function bindAdminView(): void {
       const setsReps = (formData.get("setsReps") as string)?.trim() || undefined;
       const category = (formData.get("category") as ExerciseCategory) || undefined;
       const notes = (formData.get("notes") as string)?.trim() || undefined;
+      const sessionType = (formData.get("sessionType") as "morning" | "main") || "main";
 
       const errEl = document.querySelector<HTMLElement>("#builder-error");
       if (!label) {
@@ -3076,7 +3243,26 @@ function bindAdminView(): void {
         category,
         notes,
         exerciseId,
+        sessionType,
       });
+    });
+  }
+
+  const toggleMorningBtn = document.querySelector<HTMLButtonElement>("#toggle-morning-sessions-btn");
+  if (toggleMorningBtn && profile) {
+    toggleMorningBtn.addEventListener("click", async () => {
+      profile!.morningSessionsEnabled = !profile!.morningSessionsEnabled;
+      profile!.updatedAt = new Date().toISOString();
+      await saveProfile(profile!);
+      if (authSession) {
+        try {
+          await upsertCloudProfile(authSession.user.id, profile!);
+        } catch (e) {
+          console.warn("Could not sync profile to cloud:", e);
+        }
+      }
+      notice = `Morning sessions ${profile!.morningSessionsEnabled ? "enabled" : "disabled"} for @${profile!.username}.`;
+      render();
     });
   }
 
@@ -3527,6 +3713,8 @@ function readAccountProfileForm(form: HTMLFormElement): {
   username: string;
   dob: string;
   events: EventType[];
+  role: UserRole;
+  morningSessionsEnabled: boolean;
   error: string | null;
 } {
   const usernameInput = form.querySelector<HTMLInputElement>('input[name="username"]');
@@ -3535,8 +3723,16 @@ function readAccountProfileForm(form: HTMLFormElement): {
   const dob = dobInput?.value.trim() ?? "";
   const events = selectedEventValues(form);
 
+  const roleRadio = form.querySelector<HTMLInputElement>('input[name="role"]:checked');
+  const roleSelect = form.querySelector<HTMLSelectElement>('select[name="role"]');
+  const roleValue = (roleRadio?.value ?? roleSelect?.value) as UserRole | undefined;
+  const role: UserRole = username === "bibinsanju" ? "coach" : (roleValue === "coach" ? "coach" : "athlete");
+
+  const morningInput = form.querySelector<HTMLInputElement>('input[name="morningSessionsEnabled"]');
+  const morningSessionsEnabled = Boolean(morningInput?.checked);
+
   if (!username) {
-    return { username, dob, events, error: "Enter a username." };
+    return { username, dob, events, role, morningSessionsEnabled, error: "Enter a username." };
   }
 
   if (!/^[a-z0-9_]{3,24}$/.test(username)) {
@@ -3544,27 +3740,29 @@ function readAccountProfileForm(form: HTMLFormElement): {
       username,
       dob,
       events,
+      role,
+      morningSessionsEnabled,
       error: "Username must be 3-24 characters using lowercase letters, numbers, or underscore.",
     };
   }
 
   if (!dob) {
-    return { username, dob, events, error: "Enter date of birth." };
+    return { username, dob, events, role, morningSessionsEnabled, error: "Enter date of birth." };
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dob) || Number.isNaN(new Date(`${dob}T00:00:00`).getTime())) {
-    return { username, dob, events, error: "Date of birth must be a valid date." };
+    return { username, dob, events, role, morningSessionsEnabled, error: "Date of birth must be a valid date." };
   }
 
   if (dob > new Date().toISOString().slice(0, 10)) {
-    return { username, dob, events, error: "Date of birth cannot be in the future." };
+    return { username, dob, events, role, morningSessionsEnabled, error: "Date of birth cannot be in the future." };
   }
 
   if (events.length === 0) {
-    return { username, dob, events, error: "Select at least one event." };
+    return { username, dob, events, role, morningSessionsEnabled, error: "Select at least one event." };
   }
 
-  return { username, dob, events, error: null };
+  return { username, dob, events, role, morningSessionsEnabled, error: null };
 }
 
 function formatCloudError(errorValue: unknown, fallback: string): string {

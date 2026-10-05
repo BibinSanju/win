@@ -703,6 +703,7 @@ export function createWorkoutItem(
     setsReps?: string;
     notes?: string;
     category?: ExerciseCategory;
+    sessionType?: "morning" | "main";
   }
 ): TrainingTodoItem {
   const id = `w-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -711,6 +712,7 @@ export function createWorkoutItem(
   if (options?.setsReps) res.setsReps = options.setsReps;
   if (options?.notes) res.notes = options.notes;
   if (options?.category) res.category = options.category;
+  if (options?.sessionType) res.sessionType = options.sessionType;
   return res;
 }
 
@@ -949,12 +951,14 @@ function parseItemLine(
 
   const category = inferCategory(sectionTitle + " " + label);
   const exerciseId = matchExerciseId(label, guides);
+  const sessionType: "morning" | "main" = /morning|am\s*session|early\s*activation/i.test(sectionTitle + " " + rawLine) ? "morning" : "main";
 
   return createWorkoutItem(label, {
     setsReps,
     category,
     notes,
     exerciseId,
+    sessionType,
   });
 }
 
