@@ -22,6 +22,7 @@ import type {
   TodoProgress,
   TodoSectionPreference,
   TrainingPlanTemplate,
+  UserRole,
 } from "./types";
 
 const LAST_SYNCED_USER_KEY = "win:last-supabase-user-id";
@@ -32,6 +33,8 @@ interface ProfileRow {
   name?: string | null;
   dob: string | null;
   events: unknown;
+  role?: string | null;
+  morning_sessions_enabled?: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -132,7 +135,7 @@ export async function synchronizeUserData(
     await saveProfile(cloudProfile);
   }
 
-  const isCoach = (cloudProfile?.role === "coach") || (cloudProfile?.username?.toLowerCase() === "bibinsanju");
+  const isCoach = cloudProfile?.role === "coach";
   let activePlan: TrainingPlanTemplate;
 
   if (cloudPlan) {
@@ -203,10 +206,41 @@ export async function upsertCloudProfile(
   profile: AthleteProfile
 ): Promise<void> {
   ensureSupabase();
-  const { error } = await supabase!.from("profiles").upsert(profileToRow(userId, profile), {
+
+  try {
+    await supabase!.auth.updateUser({
+      data: {
+        username: profile.username,
+        dob: profile.dob,
+        events: profile.events,
+        role: profile.role ?? "athlete",
+        morningSessionsEnabled: Boolean(profile.morningSessionsEnabled),
+      },
+    });
+  } catch (authErr) {
+    console.warn("Could not sync metadata to Supabase auth user:", authErr);
+  }
+
+  const row = profileToRow(userId, profile);
+  const { error } = await supabase!.from("profiles").upsert(row, {
     onConflict: "user_id",
   });
-  if (error) throw error;
+
+  if (error) {
+    console.warn("Profile table upsert with role columns failed, retrying with base columns:", error.message);
+    const fallbackRow = {
+      user_id: userId,
+      username: profile.username,
+      dob: profile.dob,
+      events: profile.events,
+      created_at: profile.createdAt,
+      updated_at: profile.updatedAt,
+    };
+    const { error: fallbackError } = await supabase!.from("profiles").upsert(fallbackRow, {
+      onConflict: "user_id",
+    });
+    if (fallbackError) throw fallbackError;
+  }
 }
 
 export async function upsertCloudEvaluation(
@@ -273,7 +307,17 @@ async function fetchCloudProfile(userId: string): Promise<AthleteProfile | null>
     .maybeSingle();
 
   if (error) throw error;
-  return data ? profileFromRow(data as ProfileRow) : null;
+  if (!data) return null;
+
+  let authMeta: Record<string, unknown> | undefined;
+  try {
+    const { data: userData } = await supabase!.auth.getUser();
+    authMeta = userData.user?.user_metadata;
+  } catch {
+    // continue if offline
+  }
+
+  return profileFromRow(data as ProfileRow, authMeta);
 }
 
 async function fetchCloudTrainingPlan(userId: string): Promise<TrainingPlanTemplate | null> {
@@ -341,13 +385,30 @@ function profileToRow(userId: string, profile: AthleteProfile): ProfileRow {
     username: profile.username,
     dob: profile.dob,
     events: profile.events,
+    role: profile.role ?? "athlete",
+    morning_sessions_enabled: Boolean(profile.morningSessionsEnabled),
     created_at: profile.createdAt,
     updated_at: profile.updatedAt,
   };
 }
 
-function profileFromRow(row: ProfileRow): AthleteProfile {
-  const username = normalizeUsername(row.username ?? row.name ?? "athlete");
+function profileFromRow(row: ProfileRow, authMeta?: Record<string, unknown>): AthleteProfile {
+  const username = normalizeUsername(row.username ?? row.name ?? (authMeta?.username as string) ?? "athlete");
+
+  let role: UserRole = "athlete";
+  if (row.role === "coach" || row.role === "athlete") {
+    role = row.role;
+  } else if (authMeta?.role === "coach" || authMeta?.role === "athlete") {
+    role = authMeta.role as UserRole;
+  }
+
+  let morningSessionsEnabled = false;
+  if (typeof row.morning_sessions_enabled === "boolean") {
+    morningSessionsEnabled = row.morning_sessions_enabled;
+  } else if (typeof authMeta?.morningSessionsEnabled === "boolean") {
+    morningSessionsEnabled = Boolean(authMeta.morningSessionsEnabled);
+  }
+
   return {
     id: "local-athlete",
     username,
@@ -355,7 +416,8 @@ function profileFromRow(row: ProfileRow): AthleteProfile {
     events: toEventTypes(row.events),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    role: username.toLowerCase() === "bibinsanju" ? "coach" : "athlete",
+    role,
+    morningSessionsEnabled,
   };
 }
 

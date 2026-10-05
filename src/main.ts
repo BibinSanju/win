@@ -119,7 +119,7 @@ let adminTab: "workouts" | "analysis" = "workouts";
 
 function isCoach(): boolean {
   if (!profile) return false;
-  return profile.role === "coach" || profile.username.toLowerCase() === "bibinsanju";
+  return profile.role === "coach";
 }
 
 let currentStream: MediaStream | null = null;
@@ -250,7 +250,7 @@ async function init(): Promise<void> {
 async function loadLocalState(options: { saveDefaultTrainingPlan: boolean }): Promise<void> {
   profile = (await getProfile()) ?? null;
   if (profile && !profile.role) {
-    profile.role = profile.username.toLowerCase() === "bibinsanju" ? "coach" : "athlete";
+    profile.role = "athlete";
   }
   evaluations = await listEvaluations();
   legacyAttempts = await listAttempts();
@@ -2432,6 +2432,8 @@ async function submitAuthForm(form: HTMLFormElement): Promise<void> {
       username: parsedProfile.username,
       dob: parsedProfile.dob,
       events: parsedProfile.events,
+      role: parsedProfile.role,
+      morningSessionsEnabled: parsedProfile.morningSessionsEnabled,
       createdAt: now,
       updatedAt: now,
     };
@@ -2453,6 +2455,8 @@ async function submitAuthForm(form: HTMLFormElement): Promise<void> {
                     username: newProfile.username,
                     dob: newProfile.dob,
                     events: newProfile.events,
+                    role: newProfile.role,
+                    morningSessionsEnabled: newProfile.morningSessionsEnabled,
                   },
                 }
               : undefined,
@@ -2724,6 +2728,8 @@ function bindOnboarding(): void {
       username: parsedProfile.username,
       dob: parsedProfile.dob,
       events: parsedProfile.events,
+      role: parsedProfile.role,
+      morningSessionsEnabled: parsedProfile.morningSessionsEnabled,
       createdAt: now,
       updatedAt: now,
     };
@@ -2953,20 +2959,18 @@ function bindProfileView(): void {
       return;
     }
 
-    const roleSelect = form.querySelector<HTMLSelectElement>("#profile-role");
-    const role: UserRole = (roleSelect?.value as UserRole) || profile.role || (parsedProfile.username.toLowerCase() === "bibinsanju" ? "coach" : "athlete");
-    const morningInput = form.querySelector<HTMLInputElement>("#profile-morning-sessions");
-    const morningSessionsEnabled = Boolean(morningInput?.checked);
-
     const nextProfile: AthleteProfile = {
       ...profile,
       username: parsedProfile.username,
       dob: parsedProfile.dob,
       events: parsedProfile.events,
-      role,
-      morningSessionsEnabled,
+      role: parsedProfile.role,
+      morningSessionsEnabled: parsedProfile.morningSessionsEnabled,
       updatedAt: new Date().toISOString(),
     };
+
+    profile = nextProfile;
+    await saveProfile(profile);
 
     if (authSession) {
       try {
@@ -2976,10 +2980,8 @@ function bindProfileView(): void {
       }
     }
 
-    profile = nextProfile;
-    await saveProfile(profile);
     activeView = "dashboard";
-    notice = authSession ? "Profile and role updated and synced." : "Profile updated locally.";
+    notice = `Switched to ${nextProfile.role === "coach" ? "Coach" : "Athlete"} mode. Profile updated and saved.`;
     render();
   });
 }
@@ -3726,7 +3728,7 @@ function readAccountProfileForm(form: HTMLFormElement): {
   const roleRadio = form.querySelector<HTMLInputElement>('input[name="role"]:checked');
   const roleSelect = form.querySelector<HTMLSelectElement>('select[name="role"]');
   const roleValue = (roleRadio?.value ?? roleSelect?.value) as UserRole | undefined;
-  const role: UserRole = username === "bibinsanju" ? "coach" : (roleValue === "coach" ? "coach" : "athlete");
+  const role: UserRole = roleValue === "coach" ? "coach" : "athlete";
 
   const morningInput = form.querySelector<HTMLInputElement>('input[name="morningSessionsEnabled"]');
   const morningSessionsEnabled = Boolean(morningInput?.checked);
