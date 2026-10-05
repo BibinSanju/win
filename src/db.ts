@@ -12,7 +12,7 @@ import type {
 const DB_NAME = "win_db";
 const DB_VERSION = 4;
 const PROFILE_ID = "local-athlete";
-const TRAINING_PLAN_ID = "jumper-12-week-default";
+const TRAINING_PLAN_ID = "squad-training-plan";
 type WinStoreName =
   | "attempts"
   | "profile"
@@ -123,7 +123,9 @@ export async function listAttempts(): Promise<Attempt[]> {
 
 export async function getTrainingPlan(): Promise<TrainingPlanTemplate | undefined> {
   const db = await getDb();
-  return db.get("trainingPlans", TRAINING_PLAN_ID);
+  const plan = await db.get("trainingPlans", TRAINING_PLAN_ID);
+  if (plan) return plan;
+  return db.get("trainingPlans", "jumper-12-week-default");
 }
 
 export async function saveTrainingPlan(plan: TrainingPlanTemplate): Promise<void> {

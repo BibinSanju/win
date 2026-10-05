@@ -4,6 +4,7 @@ import {
   clearLocalAccountCache,
   deleteCloudEvaluation,
   fetchAllSquadProfiles,
+  fetchLatestSquadTrainingPlan,
   synchronizeUserData,
   updateSquadAthleteProfile,
   upsertCloudEvaluation,
@@ -252,6 +253,46 @@ async function init(): Promise<void> {
     await syncAccountAndReload();
   }
 
+  if (isSupabaseConfigured && supabase) {
+    try {
+      // Real-time listener: Push newly added/updated workouts instantly to other connected users
+      supabase
+        .channel("realtime-training-plans")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "training_plans" },
+          async () => {
+            if (!authSession) return;
+            const isCoach = profile?.role === "coach";
+            if (!isCoach) {
+              const latest = await fetchLatestSquadTrainingPlan();
+              if (latest) {
+                trainingPlan = sanitizeTrainingPlan(latest);
+                await saveTrainingPlan(trainingPlan);
+                render();
+              }
+            }
+          }
+        )
+        .subscribe();
+
+      // Window focus listener: Sync workouts when tab is focused
+      window.addEventListener("focus", () => {
+        if (authSession && profile?.role !== "coach") {
+          void fetchLatestSquadTrainingPlan().then(async (latest) => {
+            if (latest) {
+              trainingPlan = sanitizeTrainingPlan(latest);
+              await saveTrainingPlan(trainingPlan);
+              render();
+            }
+          });
+        }
+      });
+    } catch (realtimeErr) {
+      console.warn("Could not setup realtime training plans subscription:", realtimeErr);
+    }
+  }
+
   render();
 }
 
@@ -282,53 +323,28 @@ async function loadSquadAthletes(): Promise<void> {
     Boolean(
       a &&
       a.username &&
-      !a.id?.startsWith("ath-") &&
-      a.username.toLowerCase() !== "marcus_jump" &&
-      a.username.toLowerCase() !== "priya_triple" &&
-      a.username.toLowerCase() !== "jordan_speed" &&
+      a.role !== "coach" &&
       (!profile || profile.role !== "coach" || a.username.toLowerCase() !== profile.username.toLowerCase())
     );
 
   if (supabase) {
     try {
       const cloudProfiles = await fetchAllSquadProfiles();
-      const athleteCloudProfiles = cloudProfiles.filter((p) => p.role !== "coach" && isRealAthlete(p));
-      if (athleteCloudProfiles.length > 0) {
-        list = athleteCloudProfiles;
-      }
+      list = cloudProfiles.filter(isRealAthlete);
     } catch (err) {
       console.warn("Could not fetch squad athletes from cloud:", err);
-    }
-  }
-
-  // Fallback to local cache only if cloud fetch returned empty or offline
-  if (list.length === 0) {
-    try {
-      const raw = localStorage.getItem("win:squad-athletes");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          list = parsed.filter(isRealAthlete);
-        }
-      }
-    } catch {
       list = [];
     }
   }
 
-  if (profile && profile.role === "athlete" && isRealAthlete(profile)) {
-    const userAthIdx = list.findIndex(
-      (a) => a.username.toLowerCase() === profile!.username.toLowerCase()
-    );
-    if (userAthIdx >= 0) {
-      list[userAthIdx] = { ...list[userAthIdx], ...profile };
-    } else {
-      list.push(profile);
-    }
+  // Ensure any legacy local storage fallback is removed
+  try {
+    localStorage.removeItem("win:squad-athletes");
+  } catch {
+    // Ignore storage errors
   }
 
   squadAthletes = list;
-  saveSquadAthletesToStorage();
 
   if (
     activeStudentUsername &&
@@ -338,21 +354,12 @@ async function loadSquadAthletes(): Promise<void> {
   }
 }
 
-function saveSquadAthletesToStorage(): void {
-  try {
-    localStorage.setItem("win:squad-athletes", JSON.stringify(squadAthletes));
-  } catch (err) {
-    console.warn("Could not save squad athletes locally:", err);
-  }
-}
-
 async function toggleAthleteMorningSessions(username: string): Promise<void> {
   const athlete = squadAthletes.find((a) => a.username.toLowerCase() === username.toLowerCase());
   if (!athlete) return;
 
   athlete.morningSessionsEnabled = !athlete.morningSessionsEnabled;
   athlete.updatedAt = new Date().toISOString();
-  saveSquadAthletesToStorage();
 
   if (profile && profile.username.toLowerCase() === username.toLowerCase()) {
     profile.morningSessionsEnabled = athlete.morningSessionsEnabled;
@@ -1140,8 +1147,11 @@ function renderTodoView(): string {
           </button>
         </div>
       ` : `
-        <div class="athlete-info-pill">
+        <div class="athlete-info-pill" style="display:flex;gap:0.6rem;align-items:center;">
           <span>✓ View exercises & check off as completed</span>
+          <button class="ghost-action compact-btn" type="button" id="refresh-athlete-schedule-btn" title="Sync workouts from coach">
+            🔄 Sync Workouts
+          </button>
         </div>
       `}
     </section>
@@ -3103,6 +3113,27 @@ function bindTodoView(): void {
     });
   }
 
+  const refreshAthleteBtn = document.querySelector<HTMLButtonElement>("#refresh-athlete-schedule-btn");
+  if (refreshAthleteBtn) {
+    refreshAthleteBtn.addEventListener("click", async () => {
+      refreshAthleteBtn.disabled = true;
+      refreshAthleteBtn.innerHTML = "⏳ Syncing...";
+      try {
+        const latest = await fetchLatestSquadTrainingPlan();
+        if (latest) {
+          trainingPlan = sanitizeTrainingPlan(latest);
+          await saveTrainingPlan(trainingPlan);
+          notice = "Synced latest squad workouts from coach.";
+        } else {
+          notice = "No coach training plan found in database.";
+        }
+      } catch (err) {
+        notice = "Could not sync workouts: " + (err instanceof Error ? err.message : String(err));
+      }
+      render();
+    });
+  }
+
   qs<HTMLSelectElement>("#week-select").addEventListener("change", (event) => {
     selectedWeek = Number((event.target as HTMLSelectElement).value);
     notice = "";
@@ -3271,6 +3302,7 @@ async function saveGuideEdit(form: HTMLFormElement): Promise<void> {
 async function importMarkdownText(markdown: string): Promise<void> {
   if (!trainingPlan) return;
   const nextPlan = parseMarkdownChecklist(markdown, trainingPlan);
+  nextPlan.updatedAt = new Date().toISOString();
 
   if (authSession) {
     const cloudOk = await saveCloudFirst("imported weekly training plan", () =>
@@ -3626,16 +3658,22 @@ async function addWorkoutItem(
   });
 
   targetSection.items.push(newItem);
+  trainingPlan.updatedAt = new Date().toISOString();
   await saveTrainingPlan(trainingPlan);
 
   if (authSession) {
-    void saveCloudFirst("training plan workout", () =>
+    const cloudOk = await saveCloudFirst("training plan workout", () =>
       upsertCloudTrainingPlan(authSession!.user.id, trainingPlan!)
     );
+    if (!cloudOk) {
+      notice = `Added "${itemData.label}" locally, but cloud sync failed. Check database permissions.`;
+      render();
+      return;
+    }
   }
 
   const targetLabel = assignedTo ? `@${assignedTo}` : "entire squad";
-  notice = `Added "${itemData.label}" for ${targetLabel} to ${targetDay.name} (${targetSection.title}).`;
+  notice = `Added "${itemData.label}" for ${targetLabel} to ${targetDay.name} (${targetSection.title}) and synced to cloud.`;
   render();
 }
 
@@ -3666,13 +3704,19 @@ async function deleteWorkoutItem(_scope: string, itemId: string): Promise<void> 
   }
 
   if (found) {
+    trainingPlan.updatedAt = new Date().toISOString();
     await saveTrainingPlan(trainingPlan);
     if (authSession) {
-      void saveCloudFirst("delete workout item", () =>
+      const cloudOk = await saveCloudFirst("delete workout item", () =>
         upsertCloudTrainingPlan(authSession!.user.id, trainingPlan!)
       );
+      if (!cloudOk) {
+        notice = "Exercise removed locally, but cloud sync failed.";
+        render();
+        return;
+      }
     }
-    notice = "Exercise removed from training plan.";
+    notice = "Exercise removed from training plan and synced to cloud.";
     render();
   }
 }
@@ -3684,6 +3728,7 @@ async function clearAllWorkouts(): Promise<void> {
   }
 
   trainingPlan = createDefaultTrainingPlan();
+  trainingPlan.updatedAt = new Date().toISOString();
   await saveTrainingPlan(trainingPlan);
   if (authSession) {
     void saveCloudFirst("clear all workouts", () =>
@@ -3961,8 +4006,7 @@ function bindAdminView(): void {
       if (!username) return;
       if (!confirm(`Are you sure you want to remove @${username} from the squad roster?`)) return;
       squadAthletes = squadAthletes.filter((a) => a.username.toLowerCase() !== username.toLowerCase());
-      saveSquadAthletesToStorage();
-      notice = `Removed @${username} from squad roster.`;
+      notice = `Removed @${username} from squad roster view.`;
       render();
     });
   });

@@ -115,13 +115,23 @@ to authenticated
 using ((select auth.uid()) = user_id)
 with check ((select auth.uid()) = user_id);
 
+-- Training plans: Allow ALL authenticated and anon clients to view squad workouts
 drop policy if exists "training_plans_own_rows" on public.training_plans;
-create policy "training_plans_own_rows"
+drop policy if exists "training_plans_select_all" on public.training_plans;
+create policy "training_plans_select_all"
+on public.training_plans
+for select
+to authenticated, anon
+using (true);
+
+-- Allow authenticated users to insert/update training plans
+drop policy if exists "training_plans_all_authenticated" on public.training_plans;
+create policy "training_plans_all_authenticated"
 on public.training_plans
 for all
 to authenticated
-using ((select auth.uid()) = user_id)
-with check ((select auth.uid()) = user_id);
+using (true)
+with check (true);
 
 drop policy if exists "todo_progress_own_rows" on public.todo_progress;
 create policy "todo_progress_own_rows"
@@ -148,10 +158,11 @@ begin
     new.id,
     coalesce(new.raw_user_meta_data->>'username', 'athlete_' || left(new.id::text, 8)),
     coalesce((new.raw_user_meta_data->>'dob')::date, date '2000-01-01'),
-    coalesce(
-      array(select jsonb_array_elements_text(new.raw_user_meta_data->'events')),
-      '{}'::text[]
-    ),
+    case 
+      when jsonb_typeof(new.raw_user_meta_data->'events') = 'array' 
+      then array(select jsonb_array_elements_text(new.raw_user_meta_data->'events'))
+      else '{}'::text[]
+    end,
     coalesce(new.raw_user_meta_data->>'role', 'athlete'),
     coalesce((new.raw_user_meta_data->>'morningSessionsEnabled')::boolean, false)
   )
@@ -177,10 +188,11 @@ select
   u.id,
   coalesce(u.raw_user_meta_data->>'username', 'athlete_' || left(u.id::text, 8)),
   coalesce((u.raw_user_meta_data->>'dob')::date, date '2000-01-01'),
-  coalesce(
-    array(select jsonb_array_elements_text(u.raw_user_meta_data->'events')),
-    '{}'::text[]
-  ),
+  case 
+    when jsonb_typeof(u.raw_user_meta_data->'events') = 'array' 
+    then array(select jsonb_array_elements_text(u.raw_user_meta_data->'events'))
+    else '{}'::text[]
+  end,
   coalesce(u.raw_user_meta_data->>'role', 'athlete'),
   coalesce((u.raw_user_meta_data->>'morningSessionsEnabled')::boolean, false)
 from auth.users u

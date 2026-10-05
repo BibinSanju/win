@@ -9,9 +9,7 @@ import {
 } from "./db";
 import { supabase } from "./supabaseClient";
 import {
-  countPlanItems,
   createDefaultTrainingPlan,
-  isLegacyDefaultPlan,
   sanitizeTrainingPlan,
 } from "./trainingPlan";
 import type {
@@ -138,47 +136,36 @@ export async function synchronizeUserData(
   const isCoach = cloudProfile?.role === "coach";
   let activePlan: TrainingPlanTemplate;
 
-  if (cloudPlan) {
-    const cleanPlan = sanitizeTrainingPlan(cloudPlan);
-    activePlan = cleanPlan;
-
-    // If athlete, check if coach has published a newer or populated squad plan
-    if (!isCoach) {
-      try {
-        const squadPlan = await fetchLatestSquadTrainingPlan();
-        if (squadPlan) {
-          const cleanSquadPlan = sanitizeTrainingPlan(squadPlan);
-          const squadHasItems = countPlanItems(cleanSquadPlan) > 0;
-          const cloudHasItems = countPlanItems(cleanPlan) > 0;
-          const squadNewer = new Date(cleanSquadPlan.updatedAt).getTime() > new Date(cleanPlan.updatedAt).getTime();
-
-          if ((!cloudHasItems && squadHasItems) || (squadHasItems && squadNewer)) {
-            activePlan = cleanSquadPlan;
-          }
-        }
-      } catch (err) {
-        console.warn("Could not check latest squad plan for athlete:", err);
-      }
-    }
-
-    await saveTrainingPlan(activePlan);
-    if (isLegacyDefaultPlan(cloudPlan) || activePlan !== cleanPlan) {
+  if (isCoach) {
+    if (cloudPlan) {
+      activePlan = sanitizeTrainingPlan(cloudPlan);
+    } else {
+      activePlan = createDefaultTrainingPlan();
       try {
         await upsertCloudTrainingPlan(userId, activePlan);
       } catch (err) {
-        console.warn("Could not upsert synced plan to cloud:", err);
+        console.warn("Could not upsert default coach plan to cloud:", err);
       }
     }
+    await saveTrainingPlan(activePlan);
   } else {
-    const squadPlan = await fetchLatestSquadTrainingPlan();
-    const defaultPlan = squadPlan ? sanitizeTrainingPlan(squadPlan) : createDefaultTrainingPlan();
-    activePlan = defaultPlan;
+    // Athlete account: Always pull the master squad plan published by the coach!
+    let squadPlan: TrainingPlanTemplate | null = null;
     try {
-      await upsertCloudTrainingPlan(userId, defaultPlan);
+      squadPlan = await fetchLatestSquadTrainingPlan();
     } catch (err) {
-      console.warn("Could not upsert default plan to cloud:", err);
+      console.warn("Could not check latest squad plan for athlete:", err);
     }
-    await saveTrainingPlan(defaultPlan);
+
+    if (squadPlan) {
+      activePlan = sanitizeTrainingPlan(squadPlan);
+    } else if (cloudPlan) {
+      activePlan = sanitizeTrainingPlan(cloudPlan);
+    } else {
+      activePlan = createDefaultTrainingPlan();
+    }
+
+    await saveTrainingPlan(activePlan);
   }
 
   for (const row of cloudEvaluationRows) {
@@ -266,18 +253,17 @@ export async function deleteCloudEvaluation(userId: string, evaluationId: string
 
 export async function fetchAllSquadProfiles(): Promise<AthleteProfile[]> {
   if (!supabase) return [];
-  try {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: true });
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .order("created_at", { ascending: true });
 
-    if (error || !data) return [];
-    return data.map((row) => profileFromRow(row as ProfileRow));
-  } catch (err) {
-    console.warn("Could not fetch squad profiles from cloud:", err);
-    return [];
+  if (error) {
+    console.error("Could not fetch squad profiles from Supabase:", error);
+    throw error;
   }
+  if (!data) return [];
+  return data.map((row) => profileFromRow(row as ProfileRow));
 }
 
 export async function updateSquadAthleteProfile(
@@ -360,7 +346,7 @@ async function fetchCloudProfile(userId: string): Promise<AthleteProfile | null>
   return profileFromRow(data as ProfileRow, authMeta);
 }
 
-async function fetchCloudTrainingPlan(userId: string): Promise<TrainingPlanTemplate | null> {
+export async function fetchCloudTrainingPlan(userId: string): Promise<TrainingPlanTemplate | null> {
   const { data, error } = await supabase!
     .from("training_plans")
     .select("*")
@@ -373,17 +359,49 @@ async function fetchCloudTrainingPlan(userId: string): Promise<TrainingPlanTempl
   return data ? trainingPlanFromRow(data as TrainingPlanRow) : null;
 }
 
-async function fetchLatestSquadTrainingPlan(): Promise<TrainingPlanTemplate | null> {
+export async function fetchLatestSquadTrainingPlan(): Promise<TrainingPlanTemplate | null> {
   if (!supabase) return null;
-  const { data, error } = await supabase
-    .from("training_plans")
-    .select("*")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
 
-  if (error || !data) return null;
-  return trainingPlanFromRow(data as TrainingPlanRow);
+  try {
+    // 1. Prioritize training plan published by a coach
+    const { data: coachProfiles } = await supabase
+      .from("profiles")
+      .select("user_id")
+      .eq("role", "coach");
+
+    const coachIds = (coachProfiles || []).map((p) => p.user_id).filter(Boolean);
+    if (coachIds.length > 0) {
+      const { data: coachPlan, error: coachPlanError } = await supabase
+        .from("training_plans")
+        .select("*")
+        .in("user_id", coachIds)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!coachPlanError && coachPlan) {
+        return trainingPlanFromRow(coachPlan as TrainingPlanRow);
+      }
+    }
+  } catch (err) {
+    console.warn("Could not query coach training plan:", err);
+  }
+
+  // 2. Fallback to latest updated training plan across the table
+  try {
+    const { data, error } = await supabase
+      .from("training_plans")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return trainingPlanFromRow(data as TrainingPlanRow);
+  } catch (err) {
+    console.warn("Could not query fallback training plan:", err);
+    return null;
+  }
 }
 
 async function fetchCloudEvaluationRows(userId: string): Promise<EvaluationRow[]> {
@@ -502,7 +520,7 @@ function trainingPlanToRow(userId: string, plan: TrainingPlanTemplate): Training
     id: plan.id,
     user_id: userId,
     template_json: plan,
-    updated_at: plan.updatedAt,
+    updated_at: new Date().toISOString(),
   };
 }
 
