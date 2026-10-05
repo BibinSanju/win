@@ -3,12 +3,17 @@ create table if not exists public.profiles (
   username text not null,
   dob date not null,
   events text[] not null default '{}',
+  role text not null default 'athlete',
+  morning_sessions_enabled boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 alter table public.profiles add column if not exists username text;
 alter table public.profiles add column if not exists dob date;
+alter table public.profiles add column if not exists events text[] not null default '{}';
+alter table public.profiles add column if not exists role text not null default 'athlete';
+alter table public.profiles add column if not exists morning_sessions_enabled boolean not null default false;
 
 update public.profiles
 set username = lower(regexp_replace(coalesce(username, 'athlete_' || left(user_id::text, 8)), '[^a-z0-9_]+', '_', 'g'))
@@ -75,14 +80,16 @@ alter table public.training_plans enable row level security;
 alter table public.todo_progress enable row level security;
 alter table public.todo_section_preferences enable row level security;
 
+-- Profiles: Allow ALL authenticated and anon clients to view student profiles for Coach management
 drop policy if exists "profiles_own_rows" on public.profiles;
 drop policy if exists "profiles_select_all" on public.profiles;
 create policy "profiles_select_all"
 on public.profiles
 for select
-to authenticated
+to authenticated, anon
 using (true);
 
+-- Profiles: Allow authenticated users to update (e.g. coach toggling morning session or user editing bio)
 drop policy if exists "profiles_update_own" on public.profiles;
 drop policy if exists "profiles_update_all_authenticated" on public.profiles;
 create policy "profiles_update_all_authenticated"
@@ -92,6 +99,7 @@ to authenticated
 using (true)
 with check (true);
 
+-- Profiles: Allow users to insert their own profile
 drop policy if exists "profiles_insert_own" on public.profiles;
 create policy "profiles_insert_own"
 on public.profiles
@@ -130,5 +138,54 @@ for all
 to authenticated
 using ((select auth.uid()) = user_id)
 with check ((select auth.uid()) = user_id);
+
+-- Auto-create / sync profile row whenever a user signs up via Supabase Auth
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (user_id, username, dob, events, role, morning_sessions_enabled)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'username', 'athlete_' || left(new.id::text, 8)),
+    coalesce((new.raw_user_meta_data->>'dob')::date, date '2000-01-01'),
+    coalesce(
+      array(select jsonb_array_elements_text(new.raw_user_meta_data->'events')),
+      '{}'::text[]
+    ),
+    coalesce(new.raw_user_meta_data->>'role', 'athlete'),
+    coalesce((new.raw_user_meta_data->>'morningSessionsEnabled')::boolean, false)
+  )
+  on conflict (user_id) do update set
+    username = coalesce(excluded.username, public.profiles.username),
+    dob = coalesce(excluded.dob, public.profiles.dob),
+    events = coalesce(excluded.events, public.profiles.events),
+    role = coalesce(excluded.role, public.profiles.role),
+    morning_sessions_enabled = coalesce(excluded.morning_sessions_enabled, public.profiles.morning_sessions_enabled),
+    updated_at = now();
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert or update on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Backfill all existing auth.users into public.profiles
+insert into public.profiles (user_id, username, dob, events, role, morning_sessions_enabled)
+select
+  u.id,
+  coalesce(u.raw_user_meta_data->>'username', 'athlete_' || left(u.id::text, 8)),
+  coalesce((u.raw_user_meta_data->>'dob')::date, date '2000-01-01'),
+  coalesce(
+    array(select jsonb_array_elements_text(u.raw_user_meta_data->'events')),
+    '{}'::text[]
+  ),
+  coalesce(u.raw_user_meta_data->>'role', 'athlete'),
+  coalesce((u.raw_user_meta_data->>'morningSessionsEnabled')::boolean, false)
+from auth.users u
+on conflict (user_id) do update set
+  role = coalesce(excluded.role, public.profiles.role, 'athlete'),
+  morning_sessions_enabled = coalesce(excluded.morning_sessions_enabled, public.profiles.morning_sessions_enabled, false);
 
 notify pgrst, 'reload schema';

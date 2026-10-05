@@ -285,14 +285,17 @@ async function loadSquadAthletes(): Promise<void> {
       !a.id?.startsWith("ath-") &&
       a.username.toLowerCase() !== "marcus_jump" &&
       a.username.toLowerCase() !== "priya_triple" &&
-      a.username.toLowerCase() !== "jordan_speed"
+      a.username.toLowerCase() !== "jordan_speed" &&
+      (!profile || profile.role !== "coach" || a.username.toLowerCase() !== profile.username.toLowerCase())
     );
 
-  if (authSession && supabase) {
+  if (supabase) {
     try {
       const cloudProfiles = await fetchAllSquadProfiles();
       const athleteCloudProfiles = cloudProfiles.filter((p) => p.role !== "coach" && isRealAthlete(p));
-      list = athleteCloudProfiles;
+      if (athleteCloudProfiles.length > 0) {
+        list = athleteCloudProfiles;
+      }
     } catch (err) {
       console.warn("Could not fetch squad athletes from cloud:", err);
     }
@@ -3826,7 +3829,11 @@ function bindAdminView(): void {
     btn.innerHTML = "⏳ Refreshing...";
     try {
       await loadSquadAthletes();
-      notice = `Retrieved ${squadAthletes.length} student athletes from database.`;
+      if (squadAthletes.length === 0) {
+        notice = "Supabase returned 0 student athlete profiles. If athletes have registered in the database, ensure you run the SQL in supabase/schema.sql in your Supabase SQL editor so the coach account has permission to read other profiles.";
+      } else {
+        notice = `Retrieved ${squadAthletes.length} student athlete${squadAthletes.length > 1 ? "s" : ""} from database: ${squadAthletes.map((a) => "@" + a.username).join(", ")}.`;
+      }
     } catch (err) {
       notice = "Could not refresh from database: " + (err instanceof Error ? err.message : String(err));
     }
