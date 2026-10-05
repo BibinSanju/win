@@ -3675,3 +3675,365 @@ tbody tr:hover {
   }
 }
 
+/* ──────────────────────────────────────────────────────────── */
+/* Squad Athlete Roster & Individual Workout Badges            */
+/* ──────────────────────────────────────────────────────────── */
+
+.roster-view-container {
+  margin-bottom: 2rem;
+}
+
+.roster-view-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.roster-view-header h2 {
+  font-size: 1.35rem;
+  color: #f5f6f8;
+  margin: 0 0 4px 0;
+}
+
+.squad-athletes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+
+.athlete-roster-card {
+  background: linear-gradient(145deg, rgba(20, 23, 29, 0.95), rgba(15, 18, 23, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.athlete-roster-card:hover {
+  border-color: rgba(229, 178, 64, 0.4);
+  transform: translateY(-2px);
+}
+
+.athlete-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.athlete-card-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(229, 178, 64, 0.25), rgba(229, 178, 64, 0.08));
+  border: 1.5px solid rgba(229, 178, 64, 0.45);
+  color: #f5cb5c;
+  font-weight: 700;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.athlete-card-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.athlete-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.athlete-card-username {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f0f2f5;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.athlete-card-events {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.athlete-event-pill {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #8fa1b8;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.athlete-card-sub {
+  font-size: 0.72rem;
+  color: #7a8290;
+}
+
+.athlete-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.athlete-stat-tile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.stat-tile-num {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #e5b240;
+}
+
+.stat-tile-lbl {
+  font-size: 0.76rem;
+  color: #8d95a5;
+}
+
+.athlete-morning-control {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.morning-control-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8d95a5;
+}
+
+.athlete-morning-toggle-btn {
+  width: 100%;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.athlete-morning-toggle-btn.is-active {
+  background: rgba(229, 178, 64, 0.14);
+  border: 1px solid rgba(229, 178, 64, 0.4);
+  color: #f5cb5c;
+}
+
+.athlete-morning-toggle-btn.is-off {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #8d95a5;
+}
+
+.athlete-morning-toggle-btn:hover {
+  filter: brightness(1.15);
+}
+
+.athlete-card-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.athlete-remove-btn {
+  padding: 4px 8px;
+  color: #e06c75;
+  border-color: rgba(224, 108, 117, 0.3);
+  font-size: 0.85rem;
+}
+
+.athlete-remove-btn:hover {
+  background: rgba(224, 108, 117, 0.15);
+  color: #ff6b7b;
+}
+
+/* Schedule and Todo Filter Bars */
+.todo-coach-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 10px 16px;
+  background: rgba(20, 23, 29, 0.85);
+  border: 1px solid rgba(229, 178, 64, 0.3);
+  border-radius: 12px;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.todo-coach-filter-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.todo-coach-filter-left .filter-icon {
+  font-size: 1.2rem;
+}
+
+.todo-coach-filter-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.todo-coach-filter-select {
+  background: #14171d;
+  border: 1px solid rgba(229, 178, 64, 0.45);
+  color: #f0f2f5;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+}
+
+.filter-active-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.14);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.admin-schedule-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  margin: 0.75rem 0 1rem 0;
+  flex-wrap: wrap;
+}
+
+.admin-schedule-filter-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #9aa2b2;
+  font-weight: 600;
+}
+
+.admin-filter-select {
+  background: #14171d;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f0f2f5;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.admin-filter-tag {
+  font-size: 0.72rem;
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+  font-weight: 600;
+}
+
+/* Assignment Badges */
+.todo-label-title-row,
+.admin-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge-athlete-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.badge-squad-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #9aa2b2;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.badge-personal-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(229, 178, 64, 0.18);
+  color: #f7cb63;
+  border: 1px solid rgba(229, 178, 64, 0.45);
+  box-shadow: 0 0 10px rgba(229, 178, 64, 0.15);
+}
+
+.badge-morning {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(251, 146, 60, 0.14);
+  color: #fb923c;
+  border: 1px solid rgba(251, 146, 60, 0.35);
+}
+

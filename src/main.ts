@@ -3,7 +3,9 @@ import "./style.css";
 import {
   clearLocalAccountCache,
   deleteCloudEvaluation,
+  fetchAllSquadProfiles,
   synchronizeUserData,
+  updateSquadAthleteProfile,
   upsertCloudEvaluation,
   upsertCloudProfile,
   upsertCloudTodoProgress,
@@ -116,8 +118,12 @@ let mobileMenuOpen = false;
 let workoutModalOpen = false;
 let workoutModalDayId = "monday";
 let workoutModalSectionTitle = "Dynamic Warm-Up";
+let workoutModalAssignTo = "all";
 let markdownModalOpen = false;
-let adminTab: "workouts" | "analysis" = "workouts";
+let adminTab: "roster" | "workouts" | "analysis" = "roster";
+let squadAthletes: AthleteProfile[] = [];
+let selectedAthleteFilter = "all";
+let newAthleteModalOpen = false;
 
 function isCoach(): boolean {
   if (!profile) return false;
@@ -266,6 +272,149 @@ async function loadLocalState(options: { saveDefaultTrainingPlan: boolean }): Pr
 
   todoProgress = await listTodoProgress(trainingPlan.id);
   todoSectionPreferences = await listTodoSectionPreferences();
+  await loadSquadAthletes();
+}
+
+async function loadSquadAthletes(): Promise<void> {
+  let list: AthleteProfile[] = [];
+
+  try {
+    const raw = localStorage.getItem("win:squad-athletes");
+    if (raw) {
+      list = JSON.parse(raw);
+    }
+  } catch {
+    list = [];
+  }
+
+  if (authSession && supabase) {
+    try {
+      const cloudProfiles = await fetchAllSquadProfiles();
+      const athleteCloudProfiles = cloudProfiles.filter((p) => p.role !== "coach");
+      for (const cp of athleteCloudProfiles) {
+        const existingIdx = list.findIndex(
+          (a) => a.username.toLowerCase() === cp.username.toLowerCase()
+        );
+        if (existingIdx >= 0) {
+          list[existingIdx] = { ...list[existingIdx], ...cp };
+        } else {
+          list.push(cp);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch squad athletes from cloud:", err);
+    }
+  }
+
+  if (list.length === 0) {
+    list = [
+      {
+        id: "ath-marcus",
+        username: "marcus_jump",
+        dob: "2004-06-12",
+        events: ["long-jump"],
+        role: "athlete",
+        morningSessionsEnabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: "ath-priya",
+        username: "priya_triple",
+        dob: "2005-09-24",
+        events: ["triple-jump", "long-jump"],
+        role: "athlete",
+        morningSessionsEnabled: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: "ath-jordan",
+        username: "jordan_speed",
+        dob: "2003-11-05",
+        events: ["long-jump", "triple-jump"],
+        role: "athlete",
+        morningSessionsEnabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+  }
+
+  if (profile && profile.role === "athlete") {
+    const userAthIdx = list.findIndex(
+      (a) => a.username.toLowerCase() === profile!.username.toLowerCase()
+    );
+    if (userAthIdx >= 0) {
+      list[userAthIdx] = { ...list[userAthIdx], ...profile };
+    } else {
+      list.push(profile);
+    }
+  }
+
+  squadAthletes = list;
+  saveSquadAthletesToStorage();
+}
+
+function saveSquadAthletesToStorage(): void {
+  try {
+    localStorage.setItem("win:squad-athletes", JSON.stringify(squadAthletes));
+  } catch (err) {
+    console.warn("Could not save squad athletes locally:", err);
+  }
+}
+
+async function toggleAthleteMorningSessions(username: string): Promise<void> {
+  const athlete = squadAthletes.find((a) => a.username.toLowerCase() === username.toLowerCase());
+  if (!athlete) return;
+
+  athlete.morningSessionsEnabled = !athlete.morningSessionsEnabled;
+  athlete.updatedAt = new Date().toISOString();
+  saveSquadAthletesToStorage();
+
+  if (profile && profile.username.toLowerCase() === username.toLowerCase()) {
+    profile.morningSessionsEnabled = athlete.morningSessionsEnabled;
+    await saveProfile(profile);
+  }
+
+  if (authSession && supabase) {
+    void updateSquadAthleteProfile(athlete.id, {
+      morningSessionsEnabled: athlete.morningSessionsEnabled,
+    });
+  }
+
+  notice = `Morning training ${athlete.morningSessionsEnabled ? "enabled" : "disabled"} for @${athlete.username}.`;
+  render();
+}
+
+async function addNewSquadAthlete(athleteData: {
+  username: string;
+  dob: string;
+  events: EventType[];
+  morningSessionsEnabled: boolean;
+}): Promise<void> {
+  const normUser = athleteData.username.toLowerCase().trim();
+  const existing = squadAthletes.find((a) => a.username.toLowerCase() === normUser);
+  if (existing) {
+    throw new Error(`An athlete with username "@${athleteData.username}" already exists.`);
+  }
+
+  const newAth: AthleteProfile = {
+    id: `ath-${Date.now().toString(36)}`,
+    username: normUser,
+    dob: athleteData.dob,
+    events: athleteData.events,
+    role: "athlete",
+    morningSessionsEnabled: athleteData.morningSessionsEnabled,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  squadAthletes.push(newAth);
+  saveSquadAthletesToStorage();
+  notice = `Added @${newAth.username} to squad roster.`;
+  newAthleteModalOpen = false;
+  render();
 }
 
 async function syncAccountAndReload(options: { resetLocalCache?: boolean } = {}): Promise<void> {
@@ -575,6 +724,7 @@ function renderAppShell(content: string): string {
       ${renderGuideDrawer()}
       ${renderWorkoutModal()}
       ${renderMarkdownModal()}
+      ${renderNewAthleteModal()}
     </div>
   `;
 }
@@ -909,6 +1059,33 @@ function renderEventCard(eventType: EventType): string {
   `;
 }
 
+function isItemVisibleForAthlete(item: TrainingTodoItem, filterAthlete: string): boolean {
+  if (filterAthlete === "all") return true;
+  if (!item.assignedTo || item.assignedTo === "all" || item.assignedTo === "squad") return true;
+  return item.assignedTo.toLowerCase() === filterAthlete.toLowerCase();
+}
+
+function countAthleteWorkouts(plan: TrainingPlanTemplate | null, username: string): number {
+  if (!plan) return 0;
+  const target = username.toLowerCase();
+  let count = 0;
+  for (const d of plan.days) {
+    for (const s of d.sections) {
+      for (const item of s.items) {
+        if (item.assignedTo && item.assignedTo.toLowerCase() === target) {
+          count++;
+        }
+      }
+    }
+  }
+  for (const item of plan.dailyChecklist) {
+    if (item.assignedTo && item.assignedTo.toLowerCase() === target) {
+      count++;
+    }
+  }
+  return count;
+}
+
 function isMorningSection(section: TrainingSection): boolean {
   return (
     /morning|am\s*session|early\s*activation/i.test(section.title) ||
@@ -923,15 +1100,22 @@ function renderTodoView(): string {
   if (!day) return "";
 
   const coachMode = isCoach();
-  const athleteHasMorning = Boolean(profile?.morningSessionsEnabled);
+  const effectiveAthleteFilter = coachMode ? selectedAthleteFilter : (profile?.username ?? "all");
+
+  const targetAthleteProfile = coachMode && selectedAthleteFilter !== "all"
+    ? squadAthletes.find((a) => a.username.toLowerCase() === selectedAthleteFilter.toLowerCase())
+    : profile;
+  const athleteHasMorning = Boolean(targetAthleteProfile?.morningSessionsEnabled);
 
   const phase = getPhaseForWeek(trainingPlan, selectedWeek);
-  const visibleIds = collectVisibleProgressIds(trainingPlan, day, phase);
+  const visibleIds = collectVisibleProgressIds(trainingPlan, day, phase, effectiveAthleteFilter);
   const completedCount = visibleIds.filter((id) => isTodoComplete(id)).length;
   const completion = visibleIds.length > 0 ? Math.round((completedCount / visibleIds.length) * 100) : 0;
   const guideCount = Object.keys(trainingPlan.exerciseGuides).length;
 
-  const dayAllItems = day.sections.flatMap((s) => s.items);
+  const dayAllItems = day.sections
+    .flatMap((s) => s.items)
+    .filter((i) => isItemVisibleForAthlete(i, effectiveAthleteFilter));
   const dayTotalExercises = dayAllItems.length;
   const dayCompletedExercises = dayAllItems.filter((item) => {
     return day.sections.some((s) =>
@@ -958,6 +1142,30 @@ function renderTodoView(): string {
         ${renderMiniMetric("Items", String(countPlanItems(trainingPlan)))}
       </div>
     </section>
+
+    ${coachMode ? `
+      <!-- Coach Athlete Filter Bar -->
+      <section class="todo-coach-filter-bar">
+        <div class="todo-coach-filter-left">
+          <span class="filter-icon">👤</span>
+          <div>
+            <strong>Athlete Schedule View:</strong>
+            <small class="muted" style="display:block; font-size:0.75rem;">Switch between squad-wide workouts and individual athlete schedules</small>
+          </div>
+        </div>
+        <div class="todo-coach-filter-right">
+          <select id="todo-athlete-filter" class="todo-coach-filter-select" aria-label="Filter schedule by student athlete">
+            <option value="all" ${selectedAthleteFilter === "all" ? "selected" : ""}>👥 Entire Squad (All Workouts)</option>
+            ${squadAthletes.map(a => `<option value="${escapeAttribute(a.username)}" ${selectedAthleteFilter.toLowerCase() === a.username.toLowerCase() ? "selected" : ""}>🏃 @${escapeHtml(a.username)} (${a.morningSessionsEnabled ? "🌅 AM active" : "PM only"})</option>`).join("")}
+          </select>
+          ${selectedAthleteFilter !== "all" ? `
+            <button class="ghost-action compact-btn" type="button" data-reset-athlete-filter title="Clear filter">
+              ✕ Clear
+            </button>
+          ` : ""}
+        </div>
+      </section>
+    ` : ""}
 
     <!-- Sleek, balanced toolbar (No squished select, clean mobile buttons) -->
     <section class="todo-controls-bar">
@@ -993,7 +1201,7 @@ function renderTodoView(): string {
           (candidate) => `
             <button class="day-tab ${candidate.id === day.id ? "is-active" : ""}" type="button" data-day-id="${candidate.id}">
               ${candidate.name}
-              ${candidate.sections.some(s => s.items.length > 0) ? '<span class="day-has-items-dot"></span>' : ''}
+              ${candidate.sections.some(s => s.items.filter(i => isItemVisibleForAthlete(i, effectiveAthleteFilter)).length > 0) ? '<span class="day-has-items-dot"></span>' : ''}
             </button>
           `
         )
@@ -1008,6 +1216,7 @@ function renderTodoView(): string {
               <div class="day-eyebrow-row">
                 <p class="eyebrow">Week ${selectedWeek} | ${escapeHtml(day.name)}</p>
                 ${athleteHasMorning ? `<span class="morning-active-tag">🌅 Morning Enabled</span>` : ""}
+                ${selectedAthleteFilter !== "all" && coachMode ? `<span class="filter-active-tag">Filtered: @${escapeHtml(selectedAthleteFilter)}</span>` : ""}
               </div>
               <h2>${escapeHtml(day.title)}</h2>
               <p class="day-focus-desc">${escapeHtml(day.focus)}</p>
@@ -1025,14 +1234,14 @@ function renderTodoView(): string {
           </div>
         </article>
 
-        ${day.sections.length === 0 && trainingPlan.dailyChecklist.length === 0 ? `
+        ${dayTotalExercises === 0 && trainingPlan.dailyChecklist.length === 0 ? `
           <div class="empty-day-state-card">
             <div class="empty-day-visual">🏃‍♂️</div>
             <h3>No Workouts Scheduled for ${escapeHtml(day.name)}</h3>
-            <p class="muted">${coachMode ? "Plan track exercises, plyometrics, or sprints for your athletes." : "Rest or recovery day. Check the other day tabs for this week's scheduled workouts."}</p>
+            <p class="muted">${coachMode ? `Plan track exercises, plyometrics, or sprints for ${selectedAthleteFilter !== "all" ? `@${selectedAthleteFilter}` : "your athletes"}.` : "Rest or recovery day. Check the other day tabs for this week's scheduled workouts."}</p>
             ${coachMode ? `
               <div class="empty-day-actions">
-                <button class="primary-action compact-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
+                <button class="primary-action compact-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}" data-assign-to="${escapeAttribute(selectedAthleteFilter)}">
                   ＋ Add Workout to ${escapeHtml(day.name)}
                 </button>
                 <button class="secondary-action compact-btn" type="button" data-open-markdown-modal>
@@ -1043,7 +1252,7 @@ function renderTodoView(): string {
           </div>
         ` : ""}
 
-        ${trainingPlan.dailyChecklist.length > 0 ? renderTodoSection("daily", "Daily Training Checklist", trainingPlan.dailyChecklist) : ""}
+        ${trainingPlan.dailyChecklist.length > 0 ? renderTodoSection("daily", "Daily Training Checklist", trainingPlan.dailyChecklist, undefined, undefined, false, effectiveAthleteFilter) : ""}
 
         ${morningSections.length > 0 ? `
           <section class="morning-session-container ${!athleteHasMorning && !coachMode ? "is-optional-morning" : ""}">
@@ -1062,7 +1271,7 @@ function renderTodoView(): string {
               `}
             </div>
             ${morningSections
-              .map((section) => renderTodoSection(`week-${selectedWeek}-${day.id}-${section.id}`, section.title, section.items, section.note, day.id, true))
+              .map((section) => renderTodoSection(`week-${selectedWeek}-${day.id}-${section.id}`, section.title, section.items, section.note, day.id, true, effectiveAthleteFilter))
               .join("")}
           </section>
         ` : (athleteHasMorning && day.sections.length > 0 ? `
@@ -1072,11 +1281,11 @@ function renderTodoView(): string {
         ` : "")}
 
         ${mainSections
-          .map((section) => renderTodoSection(`week-${selectedWeek}-${day.id}-${section.id}`, section.title, section.items, section.note, day.id, false))
+          .map((section) => renderTodoSection(`week-${selectedWeek}-${day.id}-${section.id}`, section.title, section.items, section.note, day.id, false, effectiveAthleteFilter))
           .join("")}
 
-        ${phase.items.length > 0 ? renderTodoSection(`phase-${selectedWeek}`, `${phase.weekRange} - ${phase.title}`, phase.items, phase.goal) : ""}
-        ${renderImportedSections(trainingPlan)}
+        ${phase.items.length > 0 ? renderTodoSection(`phase-${selectedWeek}`, `${phase.weekRange} - ${phase.title}`, phase.items, phase.goal, undefined, false, effectiveAthleteFilter) : ""}
+        ${renderImportedSections(trainingPlan, effectiveAthleteFilter)}
       </div>
 
       <aside class="todo-side">
@@ -1086,10 +1295,10 @@ function renderTodoView(): string {
             <h3>Manage Schedule</h3>
             <p class="muted">Add workouts to any day or navigate to the Admin Hub for complete squad oversight.</p>
             <div class="coach-quick-btn-group">
-              <button class="primary-action" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
+              <button class="primary-action" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}" data-assign-to="${escapeAttribute(selectedAthleteFilter)}">
                 ＋ Add Workout to ${escapeHtml(day.name)}
               </button>
-              <button class="secondary-action" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}" data-section-title="🌅 Morning Session: Activation & Mobility">
+              <button class="secondary-action" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}" data-section-title="🌅 Morning Session: Activation & Mobility" data-assign-to="${escapeAttribute(selectedAthleteFilter)}">
                 🌅 + Add Morning Session
               </button>
               <button class="secondary-action" type="button" data-view="admin">
@@ -1114,14 +1323,21 @@ function renderTodoView(): string {
           </article>
         ` : ""}
 
-        ${trainingPlan.personalReminders.length > 0 ? renderTodoSection("personal-reminders", "Personal Reminders", trainingPlan.personalReminders) : ""}
+        ${trainingPlan.personalReminders.length > 0 ? renderTodoSection("personal-reminders", "Personal Reminders", trainingPlan.personalReminders, undefined, undefined, false, effectiveAthleteFilter) : ""}
       </aside>
     </section>
   `;
 }
 
-function renderImportedSections(plan: TrainingPlanTemplate): string {
+function renderImportedSections(plan: TrainingPlanTemplate, filterAthlete: string = "all"): string {
   if (plan.importedSections.length === 0) return "";
+
+  const renderedSections = plan.importedSections
+    .map((section) => renderTodoSection(`imported-${section.id}`, section.title, section.items, undefined, undefined, false, filterAthlete))
+    .filter(Boolean)
+    .join("");
+
+  if (!renderedSections) return "";
 
   return `
     <section class="imported-plan">
@@ -1130,9 +1346,7 @@ function renderImportedSections(plan: TrainingPlanTemplate): string {
         <h2>Imported checklist sections</h2>
         <span>Known exercises are matched to existing how-to guides.</span>
       </div>
-      ${plan.importedSections
-        .map((section) => renderTodoSection(`imported-${section.id}`, section.title, section.items))
-        .join("")}
+      ${renderedSections}
     </section>
   `;
 }
@@ -1143,11 +1357,19 @@ function renderTodoSection(
   items: TrainingTodoItem[],
   note?: string,
   dayId?: string,
-  isMorning?: boolean
+  isMorning?: boolean,
+  filterAthlete: string = "all"
 ): string {
-  const collapsed = isTodoSectionCollapsed(scope);
-  const completed = items.filter((todoItem) => isTodoComplete(makeProgressId(scope, todoItem.id))).length;
+  const visibleItems = items.filter((todoItem) => isItemVisibleForAthlete(todoItem, filterAthlete));
   const coachMode = isCoach();
+
+  // If in athlete mode and no items are assigned to this athlete in this section, hide section
+  if (!coachMode && visibleItems.length === 0) {
+    return "";
+  }
+
+  const collapsed = isTodoSectionCollapsed(scope);
+  const completed = visibleItems.filter((todoItem) => isTodoComplete(makeProgressId(scope, todoItem.id))).length;
 
   return `
     <article class="todo-section ${collapsed ? "is-collapsed" : ""} ${isMorning ? "todo-section-morning" : ""}">
@@ -1163,7 +1385,7 @@ function renderTodoSection(
         </div>
         <div class="section-header-right">
           <span class="section-toggle-summary">
-            <strong>${completed}/${items.length}</strong>
+            <strong>${completed}/${visibleItems.length}</strong>
             <span>${collapsed ? "Show" : "Hide"}</span>
           </span>
         </div>
@@ -1172,11 +1394,11 @@ function renderTodoSection(
         collapsed
           ? ""
           : `<div class="todo-items">
-              ${items.length === 0 ? `<p class="empty-section-hint">No exercises in this section yet.</p>` : ""}
-              ${items.map((todoItem) => renderTodoRow(scope, todoItem)).join("")}
+              ${visibleItems.length === 0 ? `<p class="empty-section-hint">No exercises in this section yet.</p>` : ""}
+              ${visibleItems.map((todoItem) => renderTodoRow(scope, todoItem)).join("")}
               ${coachMode && dayId ? `
                 <div class="section-add-footer">
-                  <button class="ghost-action add-to-section-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(dayId)}" data-section-title="${escapeAttribute(title)}">
+                  <button class="ghost-action add-to-section-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(dayId)}" data-section-title="${escapeAttribute(title)}" data-assign-to="${escapeAttribute(filterAthlete)}">
                     + Add to ${escapeHtml(title)}
                   </button>
                 </div>
@@ -1193,6 +1415,8 @@ function renderTodoRow(scope: string, todoItem: TrainingTodoItem): string {
   const guide =
     todoItem.exerciseId && trainingPlan ? trainingPlan.exerciseGuides[todoItem.exerciseId] : undefined;
   const coachMode = isCoach();
+  const isCustomForMe = !coachMode && todoItem.assignedTo && profile && todoItem.assignedTo.toLowerCase() === profile.username.toLowerCase();
+  const isCustomForOther = coachMode && todoItem.assignedTo && todoItem.assignedTo !== "all";
 
   return `
     <div class="todo-row ${checked ? "is-completed-row" : ""}">
@@ -1205,10 +1429,16 @@ function renderTodoRow(scope: string, todoItem: TrainingTodoItem): string {
             ${checked ? "checked" : ""}
           />
           <div class="todo-label-group">
-            <span class="todo-label ${checked ? "is-complete" : ""}">${escapeHtml(todoItem.label)}</span>
+            <div class="todo-label-title-row">
+              <span class="todo-label ${checked ? "is-complete" : ""}">${escapeHtml(todoItem.label)}</span>
+              ${isCustomForMe ? `<span class="badge-personal-pill">✨ Custom for You</span>` : ""}
+              ${isCustomForOther ? `<span class="badge-athlete-pill">👤 For @${escapeHtml(todoItem.assignedTo!)}</span>` : ""}
+              ${coachMode && (!todoItem.assignedTo || todoItem.assignedTo === "all") ? `<span class="badge-squad-pill">👥 Squad</span>` : ""}
+            </div>
             <div class="todo-meta-badges">
               ${todoItem.setsReps ? `<span class="badge-sets">${escapeHtml(todoItem.setsReps)}</span>` : ""}
               ${todoItem.category ? `<span class="badge-cat">${escapeHtml(todoItem.category)}</span>` : ""}
+              ${todoItem.sessionType === "morning" ? `<span class="badge-morning">🌅 AM</span>` : ""}
             </div>
             ${todoItem.notes ? `
               <div class="todo-coach-notes">
@@ -1832,6 +2062,14 @@ function renderWorkoutModal(): string {
               <option value="recovery">Recovery / Cooldown</option>
             </select>
           </label>
+
+          <label class="field">
+            <span>Assign Workout To</span>
+            <select name="assignedTo">
+              <option value="all" ${workoutModalAssignTo === "all" ? "selected" : ""}>👥 Entire Squad (All Students)</option>
+              ${squadAthletes.map(a => `<option value="${escapeAttribute(a.username)}" ${workoutModalAssignTo === a.username ? "selected" : ""}>🏃 @${escapeHtml(a.username)} (Individual Drill)</option>`).join("")}
+            </select>
+          </label>
         </div>
 
         <div class="field">
@@ -1923,6 +2161,58 @@ function renderMarkdownModal(): string {
   `;
 }
 
+function renderNewAthleteModal(): string {
+  if (!newAthleteModalOpen || !isCoach()) return "";
+
+  return `
+    <div class="workout-modal-backdrop" data-close-new-athlete-modal></div>
+    <div class="workout-modal new-athlete-modal" role="dialog" aria-modal="true" aria-labelledby="modal-ath-title">
+      <div class="workout-modal-header">
+        <div>
+          <p class="eyebrow">Squad Management</p>
+          <h2 id="modal-ath-title">Add Student Athlete to Squad</h2>
+        </div>
+        <button class="workout-modal-close" type="button" data-close-new-athlete-modal aria-label="Close dialog">✕</button>
+      </div>
+
+      <p class="muted" style="margin-bottom: 0.85rem; font-size: 0.85rem;">
+        Register a student athlete to your squad roster. You can assign separate individual workouts and toggle morning sessions for them.
+      </p>
+
+      <form id="new-athlete-form" class="workout-modal-form" novalidate>
+        <label class="field">
+          <span>Student Username</span>
+          <input name="username" type="text" placeholder="e.g. tarun_jump" required />
+          <small class="field-hint">3-24 characters (lowercase, numbers, underscore)</small>
+        </label>
+
+        <label class="field">
+          <span>Date of Birth</span>
+          <input name="dob" type="date" required />
+        </label>
+
+        <fieldset class="event-select">
+          <legend>Events</legend>
+          ${renderEventChoice("long-jump", true)}
+          ${renderEventChoice("triple-jump", true)}
+        </fieldset>
+
+        <label class="morning-session-toggle-label" style="margin: 0.85rem 0;">
+          <input type="checkbox" name="morningSessionsEnabled" />
+          <span>🌅 Enable Morning Training Sessions (AM mobility, activation & drills)</span>
+        </label>
+
+        <p class="form-error" id="new-athlete-error" role="alert"></p>
+
+        <div class="workout-modal-actions">
+          <button class="ghost-action" type="button" data-close-new-athlete-modal>Cancel</button>
+          <button class="primary-action" type="submit">＋ Add Athlete to Squad</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
 function renderAdminView(): string {
   if (!profile || !trainingPlan) return "";
 
@@ -1978,15 +2268,93 @@ function renderAdminView(): string {
 
     <!-- Admin Navigation Tabs -->
     <div class="admin-tab-bar">
+      <button class="admin-tab ${adminTab === "roster" ? "is-active" : ""}" type="button" data-admin-tab="roster">
+        👥 Squad Athletes (${squadAthletes.length})
+      </button>
       <button class="admin-tab ${adminTab === "workouts" ? "is-active" : ""}" type="button" data-admin-tab="workouts">
         🏋️ Workout Builder & Schedule
       </button>
       <button class="admin-tab ${adminTab === "analysis" ? "is-active" : ""}" type="button" data-admin-tab="analysis">
-        📊 Student Stats & Morning Sessions
+        📊 Squad Diagnostics & Tests
       </button>
     </div>
 
-    ${adminTab === "workouts" ? `
+    ${adminTab === "roster" ? `
+      <!-- Squad Athletes Directory Tab -->
+      <section class="roster-view-container">
+        <div class="roster-view-header">
+          <div>
+            <p class="eyebrow">Squad Directory</p>
+            <h2>Student Athletes Roster (${squadAthletes.length})</h2>
+            <p class="muted">Manage student athletes, toggle morning routines individually, and prescribe separate custom workouts for each athlete.</p>
+          </div>
+          <button class="primary-action compact-btn" type="button" data-open-new-athlete-modal>
+            ＋ Add Student Athlete
+          </button>
+        </div>
+
+        ${squadAthletes.length === 0 ? `
+          <div class="empty-plan-card">
+            <p>No student athletes in squad yet. Add your first student athlete to assign custom workouts and track their sessions.</p>
+            <button class="primary-action" type="button" data-open-new-athlete-modal>＋ Add Student Athlete</button>
+          </div>
+        ` : `
+          <div class="squad-athletes-grid">
+            ${squadAthletes.map(ath => {
+              const customWorkoutsCount = countAthleteWorkouts(trainingPlan, ath.username);
+              return `
+                <article class="athlete-roster-card">
+                  <div class="athlete-card-top">
+                    <div class="athlete-card-avatar">
+                      <span>${escapeHtml(ath.username.slice(0, 2).toUpperCase())}</span>
+                    </div>
+                    <div class="athlete-card-meta">
+                      <div class="athlete-card-name-row">
+                        <h3 class="athlete-card-username">@${escapeHtml(ath.username)}</h3>
+                      </div>
+                      <div class="athlete-card-events">
+                        ${ath.events.map(ev => `<span class="athlete-event-pill">${EVENT_LABELS[ev]}</span>`).join("")}
+                      </div>
+                      <small class="athlete-card-sub">DOB: ${escapeHtml(ath.dob)}</small>
+                    </div>
+                  </div>
+
+                  <div class="athlete-card-body">
+                    <div class="athlete-stat-tile">
+                      <span class="stat-tile-num">${customWorkoutsCount}</span>
+                      <span class="stat-tile-lbl">Custom Workouts Assigned</span>
+                    </div>
+
+                    <div class="athlete-morning-control">
+                      <span class="morning-control-label">Morning Activation Routine:</span>
+                      <button
+                        class="athlete-morning-toggle-btn ${ath.morningSessionsEnabled ? "is-active" : "is-off"}"
+                        type="button"
+                        data-toggle-athlete-morning="${escapeAttribute(ath.username)}"
+                      >
+                        ${ath.morningSessionsEnabled ? "🌅 Morning: ACTIVE (Tap to turn off)" : "🌙 Morning: OFF (Tap to turn on)"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="athlete-card-actions">
+                    <button class="primary-action compact-btn" type="button" data-coach-add-workout-for="${escapeAttribute(ath.username)}">
+                      ＋ Prescribe Workout
+                    </button>
+                    <button class="secondary-action compact-btn" type="button" data-coach-view-athlete-plan="${escapeAttribute(ath.username)}">
+                      📅 View Schedule
+                    </button>
+                    <button class="ghost-action compact-btn athlete-remove-btn" type="button" data-coach-remove-athlete="${escapeAttribute(ath.username)}" title="Remove athlete from squad">
+                      ✕ Remove
+                    </button>
+                  </div>
+                </article>
+              `;
+            }).join("")}
+          </div>
+        `}
+      </section>
+    ` : adminTab === "workouts" ? `
       <!-- Batch Whole Week Markdown Importer Banner -->
       <section class="admin-import-banner">
         <div class="admin-import-banner-left">
@@ -2017,7 +2385,7 @@ function renderAdminView(): string {
             </div>
             <span class="badge-cat">Live Sync</span>
           </div>
-          <p class="muted">Prescribe an exercise with sets, reps, and coaching cues. It instantly appears in student schedules.</p>
+          <p class="muted">Prescribe an exercise with sets, reps, and coaching cues. Prescribe for the whole squad or an individual athlete.</p>
 
           <form id="workout-builder-form" class="builder-form" novalidate>
             <div class="builder-form-row">
@@ -2038,6 +2406,14 @@ function renderAdminView(): string {
             </div>
 
             <div class="builder-form-row">
+              <label class="field">
+                <span>Assign Workout To</span>
+                <select name="assignedTo">
+                  <option value="all" ${selectedAthleteFilter === "all" ? "selected" : ""}>👥 Entire Squad (All Students)</option>
+                  ${squadAthletes.map(a => `<option value="${escapeAttribute(a.username)}" ${selectedAthleteFilter.toLowerCase() === a.username.toLowerCase() ? "selected" : ""}>🏃 @${escapeHtml(a.username)} (Individual Workout)</option>`).join("")}
+                </select>
+              </label>
+
               <label class="field">
                 <span>Category</span>
                 <select name="category">
@@ -2098,11 +2474,36 @@ function renderAdminView(): string {
               Clear All Workouts
             </button>
           </div>
-          <p class="muted">Review workouts scheduled across the 7-day training week. You can delete or add items directly.</p>
+          <p class="muted">Review workouts scheduled across the 7-day training week. Filter by athlete to see individual plans.</p>
+
+          <!-- Schedule Filter Selector -->
+          <div class="admin-schedule-filter-bar">
+            <div class="admin-schedule-filter-left">
+              <span>Viewing Schedule:</span>
+              <select id="admin-athlete-filter" class="admin-filter-select">
+                <option value="all" ${selectedAthleteFilter === "all" ? "selected" : ""}>👥 Entire Squad (All Workouts)</option>
+                ${squadAthletes.map(a => `<option value="${escapeAttribute(a.username)}" ${selectedAthleteFilter.toLowerCase() === a.username.toLowerCase() ? "selected" : ""}>🏃 @${escapeHtml(a.username)} Only</option>`).join("")}
+              </select>
+            </div>
+            ${selectedAthleteFilter !== "all" ? `
+              <span class="admin-filter-tag">Filtered: @${escapeHtml(selectedAthleteFilter)}</span>
+            ` : ""}
+          </div>
 
           <div class="admin-days-list">
             ${days.map(d => {
-              const dayItemsCount = d.sections.reduce((acc, s) => acc + s.items.length, 0);
+              const dayItems = d.sections
+                .flatMap(s => s.items)
+                .filter(i => isItemVisibleForAthlete(i, selectedAthleteFilter));
+              const dayItemsCount = dayItems.length;
+
+              const visibleSections = d.sections
+                .map(s => ({
+                  ...s,
+                  items: s.items.filter(i => isItemVisibleForAthlete(i, selectedAthleteFilter)),
+                }))
+                .filter(s => s.items.length > 0);
+
               return `
                 <div class="admin-day-accordion">
                   <div class="admin-day-summary">
@@ -2110,24 +2511,30 @@ function renderAdminView(): string {
                       <strong>${escapeHtml(d.name)}</strong>
                       <span class="admin-day-badge">${dayItemsCount} exercises</span>
                     </div>
-                    <button class="ghost-action compact-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(d.id)}">
+                    <button class="ghost-action compact-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(d.id)}" data-assign-to="${escapeAttribute(selectedAthleteFilter)}">
                       + Add
                     </button>
                   </div>
 
-                  ${d.sections.length > 0 ? `
+                  ${visibleSections.length > 0 ? `
                     <div class="admin-day-sections">
-                      ${d.sections.map(s => `
+                      ${visibleSections.map(s => `
                         <div class="admin-sub-section">
                           <div class="admin-sub-section-title">${escapeHtml(s.title)} (${s.items.length})</div>
                           <div class="admin-items-list">
                             ${s.items.map(item => `
                               <div class="admin-item-row">
                                 <div class="admin-item-info">
-                                  <span class="admin-item-title">${escapeHtml(item.label)}</span>
+                                  <div class="admin-item-title-row">
+                                    <span class="admin-item-title">${escapeHtml(item.label)}</span>
+                                    ${item.assignedTo && item.assignedTo !== "all"
+                                      ? `<span class="badge-athlete-pill">👤 For @${escapeHtml(item.assignedTo)}</span>`
+                                      : `<span class="badge-squad-pill">👥 Squad</span>`}
+                                  </div>
                                   <div class="todo-meta-badges">
                                     ${item.setsReps ? `<span class="badge-sets">${escapeHtml(item.setsReps)}</span>` : ""}
                                     ${item.category ? `<span class="badge-cat">${escapeHtml(item.category)}</span>` : ""}
+                                    ${item.sessionType === "morning" ? `<span class="badge-morning">🌅 AM</span>` : ""}
                                   </div>
                                   ${item.notes ? `<div class="todo-coach-notes"><span class="coach-note-icon">💡</span> ${escapeHtml(item.notes)}</div>` : ""}
                                 </div>
@@ -2139,7 +2546,7 @@ function renderAdminView(): string {
                       `).join("")}
                     </div>
                   ` : `
-                    <p class="admin-empty-day-hint">No exercises scheduled for ${escapeHtml(d.name)}.</p>
+                    <p class="admin-empty-day-hint">No exercises scheduled for ${escapeHtml(d.name)} ${selectedAthleteFilter !== "all" ? `for @${escapeHtml(selectedAthleteFilter)}` : ""}.</p>
                   `}
                 </div>
               `;
@@ -2162,24 +2569,26 @@ function renderAdminView(): string {
           <p class="muted">Enable early morning training routines (sunrise activation, mobility & core prep) for student athletes. When enabled, morning drills appear with a golden sunrise header in their schedule.</p>
 
           <div class="morning-roster-box">
-            <div class="morning-roster-row">
-              <div class="morning-roster-user">
-                <span class="mobile-avatar-circle">${escapeHtml(profile.username.charAt(0).toUpperCase())}</span>
-                <div>
-                  <strong>@${escapeHtml(profile.username)}</strong>
-                  <small>${profile.events.map((e) => EVENT_LABELS[e]).join(" / ")}</small>
+            ${squadAthletes.map(ath => `
+              <div class="morning-roster-row" style="margin-bottom: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                <div class="morning-roster-user">
+                  <span class="mobile-avatar-circle">${escapeHtml(ath.username.charAt(0).toUpperCase())}</span>
+                  <div>
+                    <strong>@${escapeHtml(ath.username)}</strong>
+                    <small>${ath.events.map((e) => EVENT_LABELS[e]).join(" / ")}</small>
+                  </div>
+                </div>
+                <div class="morning-roster-status">
+                  <button
+                    class="${ath.morningSessionsEnabled ? "secondary-action" : "primary-action"} compact-btn"
+                    type="button"
+                    data-toggle-athlete-morning="${escapeAttribute(ath.username)}"
+                  >
+                    ${ath.morningSessionsEnabled ? "🌅 Morning Active (Tap to Disable)" : "🌙 Morning Off (Tap to Enable)"}
+                  </button>
                 </div>
               </div>
-              <div class="morning-roster-status">
-                <button
-                  class="${profile.morningSessionsEnabled ? "secondary-action" : "primary-action"} compact-btn"
-                  type="button"
-                  id="toggle-morning-sessions-btn"
-                >
-                  ${profile.morningSessionsEnabled ? "🌅 Morning Sessions: Active (Tap to Disable)" : "🌅 Morning Sessions: Off (Tap to Enable)"}
-                </button>
-              </div>
-            </div>
+            `).join("")}
           </div>
         </article>
 
@@ -2513,6 +2922,22 @@ function getAuthRedirectUrl(): string {
 }
 
 function bindTodoView(): void {
+  const athleteFilterSelect = document.querySelector<HTMLSelectElement>("#todo-athlete-filter");
+  if (athleteFilterSelect) {
+    athleteFilterSelect.addEventListener("change", (event) => {
+      selectedAthleteFilter = (event.target as HTMLSelectElement).value;
+      render();
+    });
+  }
+
+  const resetFilterBtn = document.querySelector<HTMLButtonElement>("[data-reset-athlete-filter]");
+  if (resetFilterBtn) {
+    resetFilterBtn.addEventListener("click", () => {
+      selectedAthleteFilter = "all";
+      render();
+    });
+  }
+
   qs<HTMLSelectElement>("#week-select").addEventListener("change", (event) => {
     selectedWeek = Number((event.target as HTMLSelectElement).value);
     notice = "";
@@ -2853,9 +3278,62 @@ function bindAppShell(): void {
       workoutModalOpen = true;
       if (button.dataset.dayId) workoutModalDayId = button.dataset.dayId;
       if (button.dataset.sectionTitle) workoutModalSectionTitle = button.dataset.sectionTitle;
+      if (button.dataset.assignTo) workoutModalAssignTo = button.dataset.assignTo;
       render();
     });
   });
+
+  qsa<HTMLElement>("[data-open-new-athlete-modal]").forEach((button) => {
+    button.addEventListener("click", () => {
+      newAthleteModalOpen = true;
+      render();
+    });
+  });
+
+  qsa<HTMLElement>("[data-close-new-athlete-modal]").forEach((el) => {
+    el.addEventListener("click", () => {
+      newAthleteModalOpen = false;
+      render();
+    });
+  });
+
+  const newAthForm = document.querySelector<HTMLFormElement>("#new-athlete-form");
+  if (newAthForm) {
+    newAthForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(newAthForm);
+      const username = (formData.get("username") as string)?.trim().toLowerCase();
+      const dob = (formData.get("dob") as string)?.trim();
+      const events = formData.getAll("events") as EventType[];
+      const morningSessionsEnabled = formData.get("morningSessionsEnabled") === "on";
+
+      const errEl = document.querySelector<HTMLElement>("#new-athlete-error");
+      if (!username || username.length < 3) {
+        if (errEl) errEl.textContent = "Please enter a valid username (min 3 chars).";
+        return;
+      }
+      if (!dob) {
+        if (errEl) errEl.textContent = "Please select a date of birth.";
+        return;
+      }
+      if (events.length === 0) {
+        if (errEl) errEl.textContent = "Please select at least one jumping event.";
+        return;
+      }
+      if (errEl) errEl.textContent = "";
+
+      try {
+        await addNewSquadAthlete({
+          username,
+          dob,
+          events,
+          morningSessionsEnabled,
+        });
+      } catch (err) {
+        if (errEl) errEl.textContent = err instanceof Error ? err.message : "Failed to add athlete.";
+      }
+    });
+  }
 
   qsa<HTMLButtonElement>("[data-delete-workout-item]").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -3000,6 +3478,7 @@ async function addWorkoutItem(
     notes?: string;
     exerciseId?: string;
     sessionType?: "morning" | "main";
+    assignedTo?: string;
   }
 ): Promise<void> {
   if (!trainingPlan) return;
@@ -3021,12 +3500,15 @@ async function addWorkoutItem(
     targetDay.sections.push(targetSection);
   }
 
+  const assignedTo = itemData.assignedTo && itemData.assignedTo !== "all" ? itemData.assignedTo.toLowerCase().trim() : undefined;
+
   const newItem = createWorkoutItem(itemData.label, {
     setsReps: itemData.setsReps,
     category: itemData.category,
     notes: itemData.notes,
     exerciseId: itemData.exerciseId,
     sessionType: itemData.sessionType,
+    assignedTo,
   });
 
   targetSection.items.push(newItem);
@@ -3038,7 +3520,8 @@ async function addWorkoutItem(
     );
   }
 
-  notice = `Added "${itemData.label}" to ${targetDay.name} (${targetSection.title}).`;
+  const targetLabel = assignedTo ? `@${assignedTo}` : "entire squad";
+  notice = `Added "${itemData.label}" for ${targetLabel} to ${targetDay.name} (${targetSection.title}).`;
   render();
 }
 
@@ -3130,6 +3613,7 @@ function bindWorkoutModalEvents(): void {
       const category = (formData.get("category") as ExerciseCategory) || undefined;
       const notes = (formData.get("notes") as string)?.trim() || undefined;
       const sessionType = (formData.get("sessionType") as "morning" | "main") || "main";
+      const assignedTo = (formData.get("assignedTo") as string)?.trim() || "all";
 
       const errEl = document.querySelector<HTMLElement>("#modal-workout-error");
       if (!label) {
@@ -3147,6 +3631,7 @@ function bindWorkoutModalEvents(): void {
         notes,
         exerciseId,
         sessionType,
+        assignedTo,
       });
     });
   }
@@ -3202,13 +3687,73 @@ function bindMarkdownModalEvents(): void {
 function bindAdminView(): void {
   qsa<HTMLButtonElement>("[data-admin-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const tab = btn.dataset.adminTab as "workouts" | "analysis" | undefined;
+      const tab = btn.dataset.adminTab as "roster" | "workouts" | "analysis" | undefined;
       if (tab) {
         adminTab = tab;
         render();
       }
     });
   });
+
+  // Morning session 1-click toggle buttons
+  qsa<HTMLButtonElement>("[data-toggle-athlete-morning]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const username = btn.dataset.toggleAthleteMorning;
+      if (username) {
+        void toggleAthleteMorningSessions(username);
+      }
+    });
+  });
+
+  // Prescribe workout for specific athlete button
+  qsa<HTMLButtonElement>("[data-coach-add-workout-for]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const username = btn.dataset.coachAddWorkoutFor;
+      if (username) {
+        workoutModalAssignTo = username;
+        workoutModalOpen = true;
+        render();
+      }
+    });
+  });
+
+  // View specific athlete schedule button
+  qsa<HTMLButtonElement>("[data-coach-view-athlete-plan]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const username = btn.dataset.coachViewAthletePlan;
+      if (username) {
+        selectedAthleteFilter = username;
+        activeView = "todo";
+        render();
+      }
+    });
+  });
+
+  // Remove athlete from squad button
+  qsa<HTMLButtonElement>("[data-coach-remove-athlete]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const username = btn.dataset.coachRemoveAthlete;
+      if (!username) return;
+      if (!confirm(`Are you sure you want to remove @${username} from the squad roster?`)) return;
+      squadAthletes = squadAthletes.filter((a) => a.username.toLowerCase() !== username.toLowerCase());
+      saveSquadAthletesToStorage();
+      notice = `Removed @${username} from squad roster.`;
+      render();
+    });
+  });
+
+  // Filter in Weekly Schedule Manager
+  const adminAthleteFilter = document.querySelector<HTMLSelectElement>("#admin-athlete-filter");
+  if (adminAthleteFilter) {
+    adminAthleteFilter.addEventListener("change", (e) => {
+      selectedAthleteFilter = (e.target as HTMLSelectElement).value;
+      render();
+    });
+  }
 
   qsa<HTMLButtonElement>("[data-builder-set-section]").forEach((pill) => {
     pill.addEventListener("click", () => {
@@ -3234,6 +3779,7 @@ function bindAdminView(): void {
       const category = (formData.get("category") as ExerciseCategory) || undefined;
       const notes = (formData.get("notes") as string)?.trim() || undefined;
       const sessionType = (formData.get("sessionType") as "morning" | "main") || "main";
+      const assignedTo = (formData.get("assignedTo") as string)?.trim() || "all";
 
       const errEl = document.querySelector<HTMLElement>("#builder-error");
       if (!label) {
@@ -3250,25 +3796,8 @@ function bindAdminView(): void {
         notes,
         exerciseId,
         sessionType,
+        assignedTo,
       });
-    });
-  }
-
-  const toggleMorningBtn = document.querySelector<HTMLButtonElement>("#toggle-morning-sessions-btn");
-  if (toggleMorningBtn && profile) {
-    toggleMorningBtn.addEventListener("click", async () => {
-      profile!.morningSessionsEnabled = !profile!.morningSessionsEnabled;
-      profile!.updatedAt = new Date().toISOString();
-      await saveProfile(profile!);
-      if (authSession) {
-        try {
-          await upsertCloudProfile(authSession.user.id, profile!);
-        } catch (e) {
-          console.warn("Could not sync profile to cloud:", e);
-        }
-      }
-      notice = `Morning sessions ${profile!.morningSessionsEnabled ? "enabled" : "disabled"} for @${profile!.username}.`;
-      render();
     });
   }
 
@@ -3643,19 +4172,26 @@ function upsertSectionPreference(
 function collectVisibleProgressIds(
   plan: TrainingPlanTemplate,
   day: TrainingDayPlan,
-  phase: ReturnType<typeof getPhaseForWeek>
+  phase: ReturnType<typeof getPhaseForWeek>,
+  filterAthlete: string = "all"
 ): string[] {
+  const isAssigned = (todoItem: TrainingTodoItem): boolean => {
+    if (filterAthlete === "all") return true;
+    if (!todoItem.assignedTo || todoItem.assignedTo === "all" || todoItem.assignedTo === "squad") return true;
+    return todoItem.assignedTo.toLowerCase() === filterAthlete.toLowerCase();
+  };
+
   const ids = [
-    ...plan.dailyChecklist.map((todoItem) => makeProgressId("daily", todoItem.id)),
+    ...plan.dailyChecklist.filter(isAssigned).map((todoItem) => makeProgressId("daily", todoItem.id)),
     ...day.sections.flatMap((section) =>
-      section.items.map((todoItem) =>
+      section.items.filter(isAssigned).map((todoItem) =>
         makeProgressId(`week-${selectedWeek}-${day.id}-${section.id}`, todoItem.id)
       )
     ),
-    ...phase.items.map((todoItem) => makeProgressId(`phase-${selectedWeek}`, todoItem.id)),
-    ...plan.personalReminders.map((todoItem) => makeProgressId("personal-reminders", todoItem.id)),
+    ...phase.items.filter(isAssigned).map((todoItem) => makeProgressId(`phase-${selectedWeek}`, todoItem.id)),
+    ...plan.personalReminders.filter(isAssigned).map((todoItem) => makeProgressId("personal-reminders", todoItem.id)),
     ...plan.importedSections.flatMap((section) =>
-      section.items.map((todoItem) => makeProgressId(`imported-${section.id}`, todoItem.id))
+      section.items.filter(isAssigned).map((todoItem) => makeProgressId(`imported-${section.id}`, todoItem.id))
     ),
   ];
 

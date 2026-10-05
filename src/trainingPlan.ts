@@ -704,6 +704,7 @@ export function createWorkoutItem(
     notes?: string;
     category?: ExerciseCategory;
     sessionType?: "morning" | "main";
+    assignedTo?: string;
   }
 ): TrainingTodoItem {
   const id = `w-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -713,6 +714,7 @@ export function createWorkoutItem(
   if (options?.notes) res.notes = options.notes;
   if (options?.category) res.category = options.category;
   if (options?.sessionType) res.sessionType = options.sessionType;
+  if (options?.assignedTo) res.assignedTo = options.assignedTo;
   return res;
 }
 

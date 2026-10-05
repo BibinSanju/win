@@ -264,6 +264,46 @@ export async function deleteCloudEvaluation(userId: string, evaluationId: string
   if (error) throw error;
 }
 
+export async function fetchAllSquadProfiles(): Promise<AthleteProfile[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .order("created_at", { ascending: true });
+
+    if (error || !data) return [];
+    return data.map((row) => profileFromRow(row as ProfileRow));
+  } catch (err) {
+    console.warn("Could not fetch squad profiles from cloud:", err);
+    return [];
+  }
+}
+
+export async function updateSquadAthleteProfile(
+  userId: string,
+  updates: Partial<AthleteProfile>
+): Promise<void> {
+  if (!supabase) return;
+  const updateData: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (updates.morningSessionsEnabled !== undefined) {
+    updateData.morning_sessions_enabled = updates.morningSessionsEnabled;
+  }
+  if (updates.role !== undefined) {
+    updateData.role = updates.role;
+  }
+  if (updates.username !== undefined) {
+    updateData.username = updates.username;
+  }
+  try {
+    await supabase.from("profiles").update(updateData).eq("user_id", userId);
+  } catch (err) {
+    console.warn("Failed to update squad athlete in cloud:", err);
+  }
+}
+
 export async function upsertCloudTrainingPlan(
   userId: string,
   plan: TrainingPlanTemplate

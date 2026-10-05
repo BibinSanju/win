@@ -22,7 +22,7 @@ export interface VideoAttachment {
 export type UserRole = "coach" | "athlete";
 
 export interface AthleteProfile {
-  id: "local-athlete";
+  id: string;
   username: string;
   dob: string;
   events: EventType[];
@@ -81,6 +81,7 @@ export interface TrainingTodoItem {
   notes?: string;
   category?: ExerciseCategory;
   sessionType?: "morning" | "main";
+  assignedTo?: string; // "all" | username
 }
 
 export interface TrainingSection {
