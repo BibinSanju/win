@@ -450,7 +450,7 @@ function profileFromRow(row: ProfileRow, authMeta?: Record<string, unknown>): At
   }
 
   return {
-    id: "local-athlete",
+    id: row.user_id || "local-athlete",
     username,
     dob: toDateOnly(row.dob),
     events: toEventTypes(row.events),

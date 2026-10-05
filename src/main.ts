@@ -120,10 +120,10 @@ let workoutModalDayId = "monday";
 let workoutModalSectionTitle = "Dynamic Warm-Up";
 let workoutModalAssignTo = "all";
 let markdownModalOpen = false;
-let adminTab: "roster" | "workouts" | "analysis" = "roster";
+let adminTab: "students" | "workouts" | "analysis" = "students";
 let squadAthletes: AthleteProfile[] = [];
 let selectedAthleteFilter = "all";
-let newAthleteModalOpen = false;
+let activeStudentUsername: string | null = null;
 
 function isCoach(): boolean {
   if (!profile) return false;
@@ -278,70 +278,42 @@ async function loadLocalState(options: { saveDefaultTrainingPlan: boolean }): Pr
 async function loadSquadAthletes(): Promise<void> {
   let list: AthleteProfile[] = [];
 
-  try {
-    const raw = localStorage.getItem("win:squad-athletes");
-    if (raw) {
-      list = JSON.parse(raw);
-    }
-  } catch {
-    list = [];
-  }
+  const isRealAthlete = (a: AthleteProfile) =>
+    Boolean(
+      a &&
+      a.username &&
+      !a.id?.startsWith("ath-") &&
+      a.username.toLowerCase() !== "marcus_jump" &&
+      a.username.toLowerCase() !== "priya_triple" &&
+      a.username.toLowerCase() !== "jordan_speed"
+    );
 
   if (authSession && supabase) {
     try {
       const cloudProfiles = await fetchAllSquadProfiles();
-      const athleteCloudProfiles = cloudProfiles.filter((p) => p.role !== "coach");
-      for (const cp of athleteCloudProfiles) {
-        const existingIdx = list.findIndex(
-          (a) => a.username.toLowerCase() === cp.username.toLowerCase()
-        );
-        if (existingIdx >= 0) {
-          list[existingIdx] = { ...list[existingIdx], ...cp };
-        } else {
-          list.push(cp);
-        }
-      }
+      const athleteCloudProfiles = cloudProfiles.filter((p) => p.role !== "coach" && isRealAthlete(p));
+      list = athleteCloudProfiles;
     } catch (err) {
       console.warn("Could not fetch squad athletes from cloud:", err);
     }
   }
 
+  // Fallback to local cache only if cloud fetch returned empty or offline
   if (list.length === 0) {
-    list = [
-      {
-        id: "ath-marcus",
-        username: "marcus_jump",
-        dob: "2004-06-12",
-        events: ["long-jump"],
-        role: "athlete",
-        morningSessionsEnabled: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: "ath-priya",
-        username: "priya_triple",
-        dob: "2005-09-24",
-        events: ["triple-jump", "long-jump"],
-        role: "athlete",
-        morningSessionsEnabled: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: "ath-jordan",
-        username: "jordan_speed",
-        dob: "2003-11-05",
-        events: ["long-jump", "triple-jump"],
-        role: "athlete",
-        morningSessionsEnabled: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
+    try {
+      const raw = localStorage.getItem("win:squad-athletes");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          list = parsed.filter(isRealAthlete);
+        }
+      }
+    } catch {
+      list = [];
+    }
   }
 
-  if (profile && profile.role === "athlete") {
+  if (profile && profile.role === "athlete" && isRealAthlete(profile)) {
     const userAthIdx = list.findIndex(
       (a) => a.username.toLowerCase() === profile!.username.toLowerCase()
     );
@@ -354,6 +326,13 @@ async function loadSquadAthletes(): Promise<void> {
 
   squadAthletes = list;
   saveSquadAthletesToStorage();
+
+  if (
+    activeStudentUsername &&
+    !squadAthletes.some((a) => a.username.toLowerCase() === activeStudentUsername!.toLowerCase())
+  ) {
+    activeStudentUsername = null;
+  }
 }
 
 function saveSquadAthletesToStorage(): void {
@@ -384,36 +363,6 @@ async function toggleAthleteMorningSessions(username: string): Promise<void> {
   }
 
   notice = `Morning training ${athlete.morningSessionsEnabled ? "enabled" : "disabled"} for @${athlete.username}.`;
-  render();
-}
-
-async function addNewSquadAthlete(athleteData: {
-  username: string;
-  dob: string;
-  events: EventType[];
-  morningSessionsEnabled: boolean;
-}): Promise<void> {
-  const normUser = athleteData.username.toLowerCase().trim();
-  const existing = squadAthletes.find((a) => a.username.toLowerCase() === normUser);
-  if (existing) {
-    throw new Error(`An athlete with username "@${athleteData.username}" already exists.`);
-  }
-
-  const newAth: AthleteProfile = {
-    id: `ath-${Date.now().toString(36)}`,
-    username: normUser,
-    dob: athleteData.dob,
-    events: athleteData.events,
-    role: "athlete",
-    morningSessionsEnabled: athleteData.morningSessionsEnabled,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  squadAthletes.push(newAth);
-  saveSquadAthletesToStorage();
-  notice = `Added @${newAth.username} to squad roster.`;
-  newAthleteModalOpen = false;
   render();
 }
 
@@ -724,7 +673,6 @@ function renderAppShell(content: string): string {
       ${renderGuideDrawer()}
       ${renderWorkoutModal()}
       ${renderMarkdownModal()}
-      ${renderNewAthleteModal()}
     </div>
   `;
 }
@@ -2161,57 +2109,7 @@ function renderMarkdownModal(): string {
   `;
 }
 
-function renderNewAthleteModal(): string {
-  if (!newAthleteModalOpen || !isCoach()) return "";
 
-  return `
-    <div class="workout-modal-backdrop" data-close-new-athlete-modal></div>
-    <div class="workout-modal new-athlete-modal" role="dialog" aria-modal="true" aria-labelledby="modal-ath-title">
-      <div class="workout-modal-header">
-        <div>
-          <p class="eyebrow">Squad Management</p>
-          <h2 id="modal-ath-title">Add Student Athlete to Squad</h2>
-        </div>
-        <button class="workout-modal-close" type="button" data-close-new-athlete-modal aria-label="Close dialog">✕</button>
-      </div>
-
-      <p class="muted" style="margin-bottom: 0.85rem; font-size: 0.85rem;">
-        Register a student athlete to your squad roster. You can assign separate individual workouts and toggle morning sessions for them.
-      </p>
-
-      <form id="new-athlete-form" class="workout-modal-form" novalidate>
-        <label class="field">
-          <span>Student Username</span>
-          <input name="username" type="text" placeholder="e.g. tarun_jump" required />
-          <small class="field-hint">3-24 characters (lowercase, numbers, underscore)</small>
-        </label>
-
-        <label class="field">
-          <span>Date of Birth</span>
-          <input name="dob" type="date" required />
-        </label>
-
-        <fieldset class="event-select">
-          <legend>Events</legend>
-          ${renderEventChoice("long-jump", true)}
-          ${renderEventChoice("triple-jump", true)}
-        </fieldset>
-
-        <label class="morning-session-toggle-label" style="margin: 0.85rem 0;">
-          <input type="checkbox" name="morningSessionsEnabled" />
-          <span>🌅 Enable Morning Training Sessions (AM mobility, activation & drills)</span>
-        </label>
-
-        <p class="form-error" id="new-athlete-error" role="alert"></p>
-
-        <div class="workout-modal-actions">
-          <button class="ghost-action" type="button" data-close-new-athlete-modal>Cancel</button>
-          <button class="primary-action" type="submit">＋ Add Athlete to Squad</button>
-        </div>
-      </form>
-    </div>
-  `;
-}
 
 function renderAdminView(): string {
   if (!profile || !trainingPlan) return "";
@@ -2268,90 +2166,354 @@ function renderAdminView(): string {
 
     <!-- Admin Navigation Tabs -->
     <div class="admin-tab-bar">
-      <button class="admin-tab ${adminTab === "roster" ? "is-active" : ""}" type="button" data-admin-tab="roster">
-        👥 Squad Athletes (${squadAthletes.length})
+      <button class="admin-tab ${adminTab === "students" ? "is-active" : ""}" type="button" data-admin-tab="students">
+        👥 Students (${squadAthletes.length})
       </button>
       <button class="admin-tab ${adminTab === "workouts" ? "is-active" : ""}" type="button" data-admin-tab="workouts">
-        🏋️ Workout Builder & Schedule
+        🏋️ Weekly Schedule
       </button>
       <button class="admin-tab ${adminTab === "analysis" ? "is-active" : ""}" type="button" data-admin-tab="analysis">
         📊 Squad Diagnostics & Tests
       </button>
     </div>
 
-    ${adminTab === "roster" ? `
-      <!-- Squad Athletes Directory Tab -->
+    ${adminTab === "students" ? `
+      <!-- Students Directory & Workout Assignment Tab -->
       <section class="roster-view-container">
         <div class="roster-view-header">
           <div>
-            <p class="eyebrow">Squad Directory</p>
-            <h2>Student Athletes Roster (${squadAthletes.length})</h2>
-            <p class="muted">Manage student athletes, toggle morning routines individually, and prescribe separate custom workouts for each athlete.</p>
+            <div class="todo-title-row">
+              <p class="eyebrow">Database Roster</p>
+              <span class="live-pill">Live DB</span>
+            </div>
+            <h2>Student Athletes (${squadAthletes.length} Available)</h2>
+            <p class="muted">Registered athletes retrieved from database. Select any student to view their workout schedule and prescribe custom sessions.</p>
           </div>
-          <button class="primary-action compact-btn" type="button" data-open-new-athlete-modal>
-            ＋ Add Student Athlete
-          </button>
+          <div class="roster-actions-row">
+            <button class="secondary-action compact-btn" type="button" id="refresh-students-btn" title="Refresh athlete list from database">
+              🔄 Refresh from DB
+            </button>
+          </div>
         </div>
 
         ${squadAthletes.length === 0 ? `
           <div class="empty-plan-card">
-            <p>No student athletes in squad yet. Add your first student athlete to assign custom workouts and track their sessions.</p>
-            <button class="primary-action" type="button" data-open-new-athlete-modal>＋ Add Student Athlete</button>
+            <div class="empty-plan-icon">👥</div>
+            <h3>No Students Found in Database</h3>
+            <p>Athletes who register on this platform with an "Athlete" account will automatically show up here.</p>
+            <p class="muted">If an athlete just signed up, click below to re-query the database.</p>
+            <button class="primary-action compact-btn" type="button" id="refresh-students-empty-btn">
+              🔄 Refresh from DB
+            </button>
           </div>
         ` : `
-          <div class="squad-athletes-grid">
-            ${squadAthletes.map(ath => {
-              const customWorkoutsCount = countAthleteWorkouts(trainingPlan, ath.username);
-              return `
-                <article class="athlete-roster-card">
-                  <div class="athlete-card-top">
-                    <div class="athlete-card-avatar">
-                      <span>${escapeHtml(ath.username.slice(0, 2).toUpperCase())}</span>
-                    </div>
-                    <div class="athlete-card-meta">
-                      <div class="athlete-card-name-row">
-                        <h3 class="athlete-card-username">@${escapeHtml(ath.username)}</h3>
-                      </div>
-                      <div class="athlete-card-events">
-                        ${ath.events.map(ev => `<span class="athlete-event-pill">${EVENT_LABELS[ev]}</span>`).join("")}
-                      </div>
-                      <small class="athlete-card-sub">DOB: ${escapeHtml(ath.dob)}</small>
-                    </div>
-                  </div>
-
-                  <div class="athlete-card-body">
-                    <div class="athlete-stat-tile">
-                      <span class="stat-tile-num">${customWorkoutsCount}</span>
-                      <span class="stat-tile-lbl">Custom Workouts Assigned</span>
-                    </div>
-
-                    <div class="athlete-morning-control">
-                      <span class="morning-control-label">Morning Activation Routine:</span>
-                      <button
-                        class="athlete-morning-toggle-btn ${ath.morningSessionsEnabled ? "is-active" : "is-off"}"
-                        type="button"
-                        data-toggle-athlete-morning="${escapeAttribute(ath.username)}"
-                      >
-                        ${ath.morningSessionsEnabled ? "🌅 Morning: ACTIVE (Tap to turn off)" : "🌙 Morning: OFF (Tap to turn on)"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="athlete-card-actions">
-                    <button class="primary-action compact-btn" type="button" data-coach-add-workout-for="${escapeAttribute(ath.username)}">
-                      ＋ Prescribe Workout
-                    </button>
-                    <button class="secondary-action compact-btn" type="button" data-coach-view-athlete-plan="${escapeAttribute(ath.username)}">
-                      📅 View Schedule
-                    </button>
-                    <button class="ghost-action compact-btn athlete-remove-btn" type="button" data-coach-remove-athlete="${escapeAttribute(ath.username)}" title="Remove athlete from squad">
-                      ✕ Remove
-                    </button>
-                  </div>
-                </article>
-              `;
-            }).join("")}
+          <!-- Quick Student Selector Bar -->
+          <div class="student-selector-bar">
+            <span class="selector-label">Select Student:</span>
+            <div class="student-pills-row">
+              <button 
+                class="student-pill ${activeStudentUsername === null ? "is-active" : ""}" 
+                type="button" 
+                data-select-student="all"
+              >
+                👥 All Students (${squadAthletes.length})
+              </button>
+              ${squadAthletes.map(ath => {
+                const isSelected = activeStudentUsername?.toLowerCase() === ath.username.toLowerCase();
+                const customCount = countAthleteWorkouts(trainingPlan, ath.username);
+                return `
+                  <button 
+                    class="student-pill ${isSelected ? "is-active" : ""}" 
+                    type="button" 
+                    data-select-student="${escapeAttribute(ath.username)}"
+                  >
+                    <span class="pill-avatar">${escapeHtml(ath.username.slice(0, 2).toUpperCase())}</span>
+                    <span class="pill-name">@${escapeHtml(ath.username)}</span>
+                    ${customCount > 0 ? `<span class="pill-count">${customCount}</span>` : ""}
+                    ${ath.morningSessionsEnabled ? `<span class="pill-badge" title="Morning routine active">🌅</span>` : ""}
+                  </button>
+                `;
+              }).join("")}
+            </div>
           </div>
+
+          ${(() => {
+            const activeStudent = activeStudentUsername
+              ? squadAthletes.find((a) => a.username.toLowerCase() === activeStudentUsername!.toLowerCase())
+              : null;
+
+            if (activeStudent) {
+              const customWorkoutsCount = countAthleteWorkouts(trainingPlan, activeStudent.username);
+              return `
+                <!-- Selected Student Workspace -->
+                <div class="student-workspace">
+                  <!-- Student Top Profile Bar -->
+                  <div class="student-profile-bar">
+                    <div class="student-profile-left">
+                      <div class="athlete-card-avatar large-avatar">
+                        <span>${escapeHtml(activeStudent.username.slice(0, 2).toUpperCase())}</span>
+                      </div>
+                      <div class="student-profile-details">
+                        <div class="student-name-row">
+                          <h3>@${escapeHtml(activeStudent.username)}</h3>
+                          <span class="badge-cat">Student Athlete</span>
+                        </div>
+                        <div class="athlete-card-events">
+                          ${activeStudent.events.map(ev => `<span class="athlete-event-pill">${EVENT_LABELS[ev] || ev}</span>`).join("")}
+                          <span class="dob-pill">DOB: ${escapeHtml(activeStudent.dob)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="student-profile-controls">
+                      <div class="student-morning-box">
+                        <span class="morning-status-text">Early Morning Routine:</span>
+                        <button
+                          class="athlete-morning-toggle-btn ${activeStudent.morningSessionsEnabled ? "is-active" : "is-off"}"
+                          type="button"
+                          data-toggle-athlete-morning="${escapeAttribute(activeStudent.username)}"
+                          title="Toggle morning activation workouts"
+                        >
+                          ${activeStudent.morningSessionsEnabled ? "🌅 Morning: ACTIVE (Tap to turn off)" : "🌙 Morning: OFF (Tap to turn on)"}
+                        </button>
+                      </div>
+                      <div class="student-profile-actions">
+                        <button class="secondary-action compact-btn" type="button" data-coach-view-athlete-plan="${escapeAttribute(activeStudent.username)}">
+                          📱 View as Athlete
+                        </button>
+                        <button class="ghost-action compact-btn" type="button" data-select-student="all">
+                          ✕ Close Student
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Two-Column Workspace: Left = Prescribe Workout Form, Right = Assigned Workouts -->
+                  <div class="student-workspace-grid">
+                    <!-- Left: Prescribe Form for this Student -->
+                    <article class="workout-builder-card student-prescribe-card">
+                      <div class="builder-card-header">
+                        <div>
+                          <p class="eyebrow">Dedicated Prescription</p>
+                          <h2>Prescribe Workout for @${escapeHtml(activeStudent.username)}</h2>
+                        </div>
+                        <span class="badge-cat">Individual</span>
+                      </div>
+                      <p class="muted">Add a tailored workout item specifically assigned to @${escapeHtml(activeStudent.username)}.</p>
+
+                      <form id="student-prescribe-form" class="builder-form" novalidate>
+                        <input type="hidden" name="assignedTo" value="${escapeAttribute(activeStudent.username)}" />
+
+                        <div class="builder-form-row">
+                          <label class="field">
+                            <span>Assign to Day</span>
+                            <select name="dayId" id="student-prescribe-day-select" required>
+                              ${days.map(d => `<option value="${d.id}" ${d.id === selectedDayId ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
+                            </select>
+                          </label>
+
+                          <label class="field">
+                            <span>Session Timing</span>
+                            <select name="sessionType">
+                              <option value="main">Main Track Session (Afternoon / Evening)</option>
+                              <option value="morning" ${activeStudent.morningSessionsEnabled ? "" : "disabled"}>
+                                🌅 Morning Activation ${activeStudent.morningSessionsEnabled ? "" : "(Enable morning routine above first)"}
+                              </option>
+                            </select>
+                          </label>
+                        </div>
+
+                        <div class="builder-form-row">
+                          <label class="field">
+                            <span>Category</span>
+                            <select name="category">
+                              <option value="jump">Jump / Technical</option>
+                              <option value="plyometric">Plyometric / Bounds</option>
+                              <option value="sprint">Sprint / Speed</option>
+                              <option value="strength">Strength / Power</option>
+                              <option value="core">Core / Posture</option>
+                              <option value="mobility">Mobility / Warmup</option>
+                              <option value="recovery">Recovery / Cooldown</option>
+                            </select>
+                          </label>
+
+                          <label class="field">
+                            <span>Sets & Reps / Volume</span>
+                            <input name="setsReps" type="text" placeholder="e.g. 4x30m sleds, 3x5 bounds" />
+                          </label>
+                        </div>
+
+                        <div class="field">
+                          <span>Section / Focus Area</span>
+                          <div class="preset-pill-row">
+                            ${presetSections.map(preset => `
+                              <button class="preset-pill ${preset === "Dynamic Warm-Up" ? "is-selected" : ""}" type="button" data-student-set-section="${escapeAttribute(preset)}">
+                                ${escapeHtml(preset)}
+                              </button>
+                            `).join("")}
+                          </div>
+                          <input name="sectionTitle" id="student-section-input" type="text" value="Dynamic Warm-Up" placeholder="e.g. Plyometrics & Bounds" required />
+                        </div>
+
+                        <label class="field">
+                          <span>Exercise Name</span>
+                          <input name="label" id="student-prescribe-label-input" type="text" placeholder="e.g. 30m Sled Acceleration / Single-leg Hurdle Bounds" required />
+                        </label>
+
+                        <label class="field">
+                          <span>Coach Cues / Technical Instructions</span>
+                          <textarea name="notes" rows="2" placeholder="e.g. Strike under hip with stiff ankle; tall chest at takeoff"></textarea>
+                        </label>
+
+                        <p class="form-error" id="student-prescribe-error" role="alert"></p>
+
+                        <button class="primary-action full-width-btn" type="submit">
+                          ＋ Add Workout to @${escapeHtml(activeStudent.username)}
+                        </button>
+                      </form>
+                    </article>
+
+                    <!-- Right: Scheduled Workouts for this Student across Monday to Sunday -->
+                    <div class="student-workouts-panel">
+                      <div class="student-workouts-header">
+                        <div>
+                          <p class="eyebrow">Weekly Schedule</p>
+                          <h3>Workouts for @${escapeHtml(activeStudent.username)}</h3>
+                        </div>
+                        <span class="stat-pill">${customWorkoutsCount} Custom Items</span>
+                      </div>
+
+                      <div class="student-days-workout-list">
+                        ${days.map(d => {
+                          const target = activeStudent.username.toLowerCase();
+                          const allItemsForDay: { item: TrainingTodoItem; sectionTitle: string; isCustom: boolean }[] = [];
+                          for (const s of d.sections) {
+                            for (const item of s.items) {
+                              const isCustom = Boolean(item.assignedTo && item.assignedTo.toLowerCase() === target);
+                              const isSquad = !item.assignedTo || item.assignedTo === "all";
+                              if (isCustom || isSquad) {
+                                allItemsForDay.push({ item, sectionTitle: s.title, isCustom });
+                              }
+                            }
+                          }
+
+                          return `
+                            <article class="student-day-box">
+                              <div class="student-day-header">
+                                <div class="student-day-title-row">
+                                  <h4>${escapeHtml(d.name)}</h4>
+                                  <span class="day-phase-tag">${escapeHtml(d.focus || d.title || "Training")}</span>
+                                </div>
+                                <div class="student-day-actions">
+                                  <button class="secondary-action compact-btn" type="button" data-student-quick-add="${escapeAttribute(d.id)}" title="Add workout specifically to ${d.name}">
+                                    ＋ Add to ${d.name}
+                                  </button>
+                                </div>
+                              </div>
+
+                              ${allItemsForDay.length === 0 ? `
+                                <p class="empty-day-note">Rest / No workouts scheduled for ${escapeHtml(d.name)}.</p>
+                              ` : `
+                                <ul class="student-items-list">
+                                  ${allItemsForDay.map(({ item, sectionTitle, isCustom }) => `
+                                    <li class="student-workout-item ${isCustom ? "is-custom-item" : "is-squad-item"}">
+                                      <div class="student-item-main">
+                                        <div class="student-item-title-row">
+                                          <strong class="student-item-label">${escapeHtml(item.label)}</strong>
+                                          ${isCustom ? `
+                                            <span class="workout-assigned-badge is-custom">👤 Custom for @${escapeHtml(activeStudent.username)}</span>
+                                          ` : `
+                                            <span class="workout-assigned-badge is-squad">👥 Squad Workout</span>
+                                          `}
+                                          ${item.sessionType === "morning" ? `<span class="morning-tag">🌅 Morning</span>` : ""}
+                                        </div>
+                                        <div class="student-item-meta">
+                                          <span class="item-sec-name">${escapeHtml(sectionTitle)}</span>
+                                          ${item.setsReps ? `<span class="item-sets-reps">📊 ${escapeHtml(item.setsReps)}</span>` : ""}
+                                          ${item.category ? `<span class="item-cat-pill">${escapeHtml(item.category)}</span>` : ""}
+                                        </div>
+                                        ${item.notes ? `<p class="item-notes-text">💡 ${escapeHtml(item.notes)}</p>` : ""}
+                                      </div>
+                                      <div class="student-item-actions">
+                                        <button 
+                                          class="ghost-action compact-btn delete-item-btn" 
+                                          type="button" 
+                                          data-delete-workout-item 
+                                          data-item-id="${escapeAttribute(item.id)}" 
+                                          data-scope="day:${escapeAttribute(d.id)}"
+                                          title="Delete this workout"
+                                        >
+                                          ✕
+                                        </button>
+                                      </div>
+                                    </li>
+                                  `).join("")}
+                                </ul>
+                              `}
+                            </article>
+                          `;
+                        }).join("")}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }
+
+            // No active student selected: show all available student cards
+            return `
+              <div class="squad-athletes-grid">
+                ${squadAthletes.map(ath => {
+                  const customWorkoutsCount = countAthleteWorkouts(trainingPlan, ath.username);
+                  return `
+                    <article class="athlete-roster-card">
+                      <div class="athlete-card-top">
+                        <div class="athlete-card-avatar">
+                          <span>${escapeHtml(ath.username.slice(0, 2).toUpperCase())}</span>
+                        </div>
+                        <div class="athlete-card-meta">
+                          <div class="athlete-card-name-row">
+                            <h3 class="athlete-card-username">@${escapeHtml(ath.username)}</h3>
+                          </div>
+                          <div class="athlete-card-events">
+                            ${ath.events.map(ev => `<span class="athlete-event-pill">${EVENT_LABELS[ev] || ev}</span>`).join("")}
+                          </div>
+                          <small class="athlete-card-sub">DOB: ${escapeHtml(ath.dob)}</small>
+                        </div>
+                      </div>
+
+                      <div class="athlete-card-body">
+                        <div class="athlete-stat-tile">
+                          <span class="stat-tile-num">${customWorkoutsCount}</span>
+                          <span class="stat-tile-lbl">Custom Workouts Assigned</span>
+                        </div>
+
+                        <div class="athlete-morning-control">
+                          <span class="morning-control-label">Morning Activation Routine:</span>
+                          <button
+                            class="athlete-morning-toggle-btn ${ath.morningSessionsEnabled ? "is-active" : "is-off"}"
+                            type="button"
+                            data-toggle-athlete-morning="${escapeAttribute(ath.username)}"
+                          >
+                            ${ath.morningSessionsEnabled ? "🌅 Morning: ACTIVE (Tap to turn off)" : "🌙 Morning: OFF (Tap to turn on)"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div class="athlete-card-actions">
+                        <button class="primary-action compact-btn" type="button" data-select-student="${escapeAttribute(ath.username)}">
+                          👉 Select & Prescribe Workouts
+                        </button>
+                        <button class="secondary-action compact-btn" type="button" data-coach-view-athlete-plan="${escapeAttribute(ath.username)}">
+                          📅 View Schedule
+                        </button>
+                      </div>
+                    </article>
+                  `;
+                }).join("")}
+              </div>
+            `;
+          })()}
         `}
       </section>
     ` : adminTab === "workouts" ? `
@@ -3283,57 +3445,6 @@ function bindAppShell(): void {
     });
   });
 
-  qsa<HTMLElement>("[data-open-new-athlete-modal]").forEach((button) => {
-    button.addEventListener("click", () => {
-      newAthleteModalOpen = true;
-      render();
-    });
-  });
-
-  qsa<HTMLElement>("[data-close-new-athlete-modal]").forEach((el) => {
-    el.addEventListener("click", () => {
-      newAthleteModalOpen = false;
-      render();
-    });
-  });
-
-  const newAthForm = document.querySelector<HTMLFormElement>("#new-athlete-form");
-  if (newAthForm) {
-    newAthForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const formData = new FormData(newAthForm);
-      const username = (formData.get("username") as string)?.trim().toLowerCase();
-      const dob = (formData.get("dob") as string)?.trim();
-      const events = formData.getAll("events") as EventType[];
-      const morningSessionsEnabled = formData.get("morningSessionsEnabled") === "on";
-
-      const errEl = document.querySelector<HTMLElement>("#new-athlete-error");
-      if (!username || username.length < 3) {
-        if (errEl) errEl.textContent = "Please enter a valid username (min 3 chars).";
-        return;
-      }
-      if (!dob) {
-        if (errEl) errEl.textContent = "Please select a date of birth.";
-        return;
-      }
-      if (events.length === 0) {
-        if (errEl) errEl.textContent = "Please select at least one jumping event.";
-        return;
-      }
-      if (errEl) errEl.textContent = "";
-
-      try {
-        await addNewSquadAthlete({
-          username,
-          dob,
-          events,
-          morningSessionsEnabled,
-        });
-      } catch (err) {
-        if (errEl) errEl.textContent = err instanceof Error ? err.message : "Failed to add athlete.";
-      }
-    });
-  }
 
   qsa<HTMLButtonElement>("[data-delete-workout-item]").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -3687,13 +3798,50 @@ function bindMarkdownModalEvents(): void {
 function bindAdminView(): void {
   qsa<HTMLButtonElement>("[data-admin-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const tab = btn.dataset.adminTab as "roster" | "workouts" | "analysis" | undefined;
+      const tab = btn.dataset.adminTab as "students" | "workouts" | "analysis" | undefined;
       if (tab) {
         adminTab = tab;
         render();
       }
     });
   });
+
+  // Student selection buttons (pills and cards)
+  qsa<HTMLButtonElement>("[data-select-student]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.selectStudent;
+      if (!username || username === "all") {
+        activeStudentUsername = null;
+      } else {
+        activeStudentUsername = username;
+      }
+      render();
+    });
+  });
+
+  // DB Refresh buttons
+  const handleRefreshStudents = async (btn: HTMLButtonElement | null) => {
+    if (!btn) return;
+    btn.disabled = true;
+    btn.innerHTML = "⏳ Refreshing...";
+    try {
+      await loadSquadAthletes();
+      notice = `Retrieved ${squadAthletes.length} student athletes from database.`;
+    } catch (err) {
+      notice = "Could not refresh from database: " + (err instanceof Error ? err.message : String(err));
+    }
+    render();
+  };
+
+  const refreshBtn = document.querySelector<HTMLButtonElement>("#refresh-students-btn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => void handleRefreshStudents(refreshBtn));
+  }
+
+  const refreshEmptyBtn = document.querySelector<HTMLButtonElement>("#refresh-students-empty-btn");
+  if (refreshEmptyBtn) {
+    refreshEmptyBtn.addEventListener("click", () => void handleRefreshStudents(refreshEmptyBtn));
+  }
 
   // Morning session 1-click toggle buttons
   qsa<HTMLButtonElement>("[data-toggle-athlete-morning]").forEach((btn) => {
@@ -3712,12 +3860,78 @@ function bindAdminView(): void {
       e.stopPropagation();
       const username = btn.dataset.coachAddWorkoutFor;
       if (username) {
-        workoutModalAssignTo = username;
-        workoutModalOpen = true;
+        activeStudentUsername = username;
+        adminTab = "students";
         render();
       }
     });
   });
+
+  // Prescribe form preset section buttons
+  qsa<HTMLButtonElement>("[data-student-set-section]").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const section = pill.dataset.studentSetSection;
+      const input = document.querySelector<HTMLInputElement>("#student-section-input");
+      if (input && section) {
+        input.value = section;
+        qsa<HTMLButtonElement>("[data-student-set-section]").forEach((p) => p.classList.remove("is-selected"));
+        pill.classList.add("is-selected");
+      }
+    });
+  });
+
+  // Quick-add shortcut on each day card
+  qsa<HTMLButtonElement>("[data-student-quick-add]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const dayId = btn.dataset.studentQuickAdd;
+      if (dayId) {
+        const daySelect = document.querySelector<HTMLSelectElement>("#student-prescribe-day-select");
+        if (daySelect) {
+          daySelect.value = dayId;
+        }
+        const labelInput = document.querySelector<HTMLInputElement>("#student-prescribe-label-input");
+        if (labelInput) {
+          labelInput.focus();
+          labelInput.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }
+    });
+  });
+
+  // Dedicated Student Prescription Form Submission
+  const studentPrescribeForm = document.querySelector<HTMLFormElement>("#student-prescribe-form");
+  if (studentPrescribeForm) {
+    studentPrescribeForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(studentPrescribeForm);
+      const dayId = formData.get("dayId") as string;
+      const sectionTitle = (formData.get("sectionTitle") as string)?.trim() || "Dynamic Warm-Up";
+      const label = (formData.get("label") as string)?.trim();
+      const setsReps = (formData.get("setsReps") as string)?.trim() || undefined;
+      const category = (formData.get("category") as ExerciseCategory) || undefined;
+      const notes = (formData.get("notes") as string)?.trim() || undefined;
+      const sessionType = (formData.get("sessionType") as "morning" | "main") || "main";
+      const assignedTo = (formData.get("assignedTo") as string)?.trim() || activeStudentUsername || undefined;
+
+      const errEl = document.querySelector<HTMLElement>("#student-prescribe-error");
+      if (!label) {
+        if (errEl) errEl.textContent = "Please enter an exercise name.";
+        return;
+      }
+      if (errEl) errEl.textContent = "";
+
+      const exerciseId = trainingPlan ? matchExerciseId(label, trainingPlan.exerciseGuides) : undefined;
+      await addWorkoutItem(dayId, sectionTitle, {
+        label,
+        setsReps,
+        category,
+        notes,
+        exerciseId,
+        sessionType,
+        assignedTo,
+      });
+    });
+  }
 
   // View specific athlete schedule button
   qsa<HTMLButtonElement>("[data-coach-view-athlete-plan]").forEach((btn) => {
