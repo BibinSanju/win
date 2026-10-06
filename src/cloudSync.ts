@@ -1,5 +1,6 @@
 import {
   clearCloudBackedStores,
+  getTrainingPlan,
   listEvaluations,
   saveEvaluation,
   saveProfile,
@@ -113,6 +114,10 @@ export async function synchronizeUserData(
       .map((record) => [record.id, record.video])
   );
 
+  // CRITICAL: Capture existing local training plan before clearing stores,
+  // so any local coach edits or assigned workouts on this device are never lost!
+  const localPlan = await getTrainingPlan();
+
   await clearCloudBackedStores({ includeLegacyAttempts: !sameCachedUser });
 
   const [
@@ -137,7 +142,28 @@ export async function synchronizeUserData(
   let activePlan: TrainingPlanTemplate;
 
   if (isCoach) {
-    if (cloudPlan) {
+    // Check if localPlan contains tailored workouts for athletes or has newer changes
+    const localHasAssignedItems = Boolean(
+      localPlan &&
+      localPlan.days.some((d) =>
+        d.sections.some((s) => s.items.some((it) => Boolean(it.assignedTo && it.assignedTo !== "all")))
+      )
+    );
+    const localIsNewer = Boolean(
+      localPlan &&
+      cloudPlan &&
+      new Date(localPlan.updatedAt || 0).getTime() > new Date(cloudPlan.updatedAt || 0).getTime()
+    );
+
+    if (localPlan && (localHasAssignedItems || localIsNewer || !cloudPlan)) {
+      // Coach edited workouts locally on this device. Retain them and immediately publish to Supabase cloud!
+      activePlan = sanitizeTrainingPlan(localPlan);
+      try {
+        await upsertCloudTrainingPlan(userId, activePlan);
+      } catch (err) {
+        console.warn("Could not upsert local coach plan with tailored workouts to cloud:", err);
+      }
+    } else if (cloudPlan) {
       activePlan = sanitizeTrainingPlan(cloudPlan);
     } else {
       activePlan = createDefaultTrainingPlan();

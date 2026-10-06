@@ -234,7 +234,7 @@ async function init(): Promise<void> {
     try {
       const sessionPromise = supabase.auth.getSession();
       const timeoutPromise = new Promise<{ data: { session: null }; error: Error }>((_, reject) =>
-        setTimeout(() => reject(new Error("Supabase auth timeout")), 2000)
+        setTimeout(() => reject(new Error("Supabase auth timeout")), 6000)
       );
       const { data, error } = await Promise.race([sessionPromise, timeoutPromise]);
       if (error) {
@@ -242,8 +242,22 @@ async function init(): Promise<void> {
       }
       authSession = data?.session ?? null;
     } catch {
-      console.warn("Supabase connection bypassed (unreachable or paused). Continuing in offline-capable mode.");
+      console.warn("Supabase initial getSession timed out or bypassed. Listening for auth state changes.");
       authSession = null;
+    }
+
+    try {
+      supabase.auth.onAuthStateChange(async (_event, session) => {
+        const wasSession = authSession;
+        authSession = session;
+        if (session && (!wasSession || wasSession.user.id !== session.user.id)) {
+          await syncAccountAndReload();
+        } else if (!session && wasSession) {
+          render();
+        }
+      });
+    } catch (e) {
+      console.warn("Could not register onAuthStateChange listener:", e);
     }
   }
 
@@ -262,7 +276,6 @@ async function init(): Promise<void> {
           "postgres_changes",
           { event: "*", schema: "public", table: "training_plans" },
           async () => {
-            if (!authSession) return;
             const isCoach = profile?.role === "coach";
             if (!isCoach) {
               const latest = await fetchLatestSquadTrainingPlan();
@@ -278,7 +291,7 @@ async function init(): Promise<void> {
 
       // Window focus listener: Sync workouts when tab is focused
       window.addEventListener("focus", () => {
-        if (authSession && profile?.role !== "coach") {
+        if (profile?.role !== "coach") {
           void fetchLatestSquadTrainingPlan().then(async (latest) => {
             if (latest) {
               trainingPlan = sanitizeTrainingPlan(latest);
@@ -1142,7 +1155,10 @@ function renderTodoView(): string {
           <button class="primary-action compact-btn coach-action-btn" type="button" data-open-add-workout data-day-id="${escapeAttribute(day.id)}">
             <span class="btn-icon">＋</span> Add Workout
           </button>
-          <button class="secondary-action compact-btn coach-action-btn" type="button" data-open-markdown-modal title="Import weekly markdown schedule or upload .md">
+          <button class="secondary-action compact-btn coach-action-btn" type="button" id="push-schedule-to-cloud-btn-todo" title="Push current workouts to squad devices">
+            <span class="btn-icon">☁️</span> Push to Squad
+          </button>
+          <button class="ghost-action compact-btn coach-action-btn" type="button" data-open-markdown-modal title="Import weekly markdown schedule or upload .md">
             <span class="btn-icon">📝</span> Import Week (.md)
           </button>
         </div>
@@ -2177,6 +2193,32 @@ function renderAdminView(): string {
       </div>
     </section>
 
+    <!-- Cloud Squad Sync Status & Push Button -->
+    <section class="admin-cloud-sync-banner ${authSession ? "is-connected" : "is-disconnected"}">
+      <div class="admin-cloud-sync-status">
+        <span class="status-indicator-dot ${authSession ? "dot-online" : "dot-offline"}"></span>
+        <div>
+          <strong>${authSession ? "☁️ Supabase Cloud: Connected" : "⚠️ Cloud Sync: Offline / Guest Mode"}</strong>
+          <small class="muted" style="display:block;">
+            ${authSession
+              ? `Logged in as Coach (@${escapeHtml(profile.username)} • ${escapeHtml(authSession.user.email ?? "coach")}). Workouts sync directly to all student athlete devices.`
+              : `You are in offline mode. Changes added on this phone will NOT reach athlete devices until you sign in.`
+            }
+          </small>
+        </div>
+      </div>
+      <div class="admin-cloud-sync-actions">
+        ${authSession
+          ? `<button class="primary-action compact-btn" type="button" id="push-schedule-to-cloud-btn" title="Push your active schedule and tailored workouts to Supabase">
+              ☁️ Push Schedule to Squad
+            </button>`
+          : `<button class="primary-action compact-btn" type="button" data-view="profile" title="Sign into Supabase">
+              🔑 Sign In to Sync
+            </button>`
+        }
+      </div>
+    </section>
+
     <!-- Admin Navigation Tabs -->
     <div class="admin-tab-bar">
       <button class="admin-tab ${adminTab === "students" ? "is-active" : ""}" type="button" data-admin-tab="students">
@@ -2393,7 +2435,12 @@ function renderAdminView(): string {
                           <p class="eyebrow">Weekly Schedule</p>
                           <h3>Workouts for @${escapeHtml(activeStudent.username)}</h3>
                         </div>
-                        <span class="stat-pill">${customWorkoutsCount} Custom Items</span>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                          <span class="stat-pill">${customWorkoutsCount} Custom Items</span>
+                          <button class="secondary-action compact-btn" type="button" data-push-cloud-now title="Push current schedule to cloud so @${escapeHtml(activeStudent.username)} sees it immediately">
+                            ☁️ Push to Cloud
+                          </button>
+                        </div>
                       </div>
 
                       <div class="student-days-workout-list">
@@ -3134,6 +3181,17 @@ function bindTodoView(): void {
     });
   }
 
+  const pushTodoBtn = document.querySelector<HTMLButtonElement>("#push-schedule-to-cloud-btn-todo");
+  if (pushTodoBtn) {
+    pushTodoBtn.addEventListener("click", async () => {
+      pushTodoBtn.disabled = true;
+      pushTodoBtn.innerHTML = "⏳ Pushing...";
+      await pushScheduleToCloud();
+      pushTodoBtn.disabled = false;
+      pushTodoBtn.innerHTML = "<span class=\"btn-icon\">☁️</span> Push to Squad";
+    });
+  }
+
   qs<HTMLSelectElement>("#week-select").addEventListener("change", (event) => {
     selectedWeek = Number((event.target as HTMLSelectElement).value);
     notice = "";
@@ -3661,19 +3719,80 @@ async function addWorkoutItem(
   trainingPlan.updatedAt = new Date().toISOString();
   await saveTrainingPlan(trainingPlan);
 
+  // Attempt to recover or verify session on demand if currently missing
+  if (!authSession && supabase) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session) {
+        authSession = data.session;
+      }
+    } catch {
+      // offline
+    }
+  }
+
+  let cloudSynced = false;
+  let cloudErrorMsg = "";
+
   if (authSession) {
-    const cloudOk = await saveCloudFirst("training plan workout", () =>
-      upsertCloudTrainingPlan(authSession!.user.id, trainingPlan!)
-    );
-    if (!cloudOk) {
-      notice = `Added "${itemData.label}" locally, but cloud sync failed. Check database permissions.`;
-      render();
-      return;
+    try {
+      await upsertCloudTrainingPlan(authSession.user.id, trainingPlan);
+      cloudSynced = true;
+    } catch (err) {
+      cloudErrorMsg = err instanceof Error ? err.message : String(err);
+      console.error("Cloud sync failed in addWorkoutItem:", err);
     }
   }
 
   const targetLabel = assignedTo ? `@${assignedTo}` : "entire squad";
-  notice = `Added "${itemData.label}" for ${targetLabel} to ${targetDay.name} (${targetSection.title}) and synced to cloud.`;
+  if (cloudSynced) {
+    notice = `Added "${itemData.label}" for ${targetLabel} to ${targetDay.name} (${targetSection.title}) and synced to cloud.`;
+  } else if (!authSession) {
+    notice = `⚠️ Saved "${itemData.label}" for ${targetLabel} on this device only. (Not signed into Supabase: sign in to sync with athlete phones).`;
+  } else {
+    notice = `⚠️ Saved "${itemData.label}" locally, but cloud sync failed: ${cloudErrorMsg}`;
+  }
+  render();
+}
+
+async function pushScheduleToCloud(): Promise<void> {
+  if (!trainingPlan) return;
+
+  if (!authSession && supabase) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session) {
+        authSession = data.session;
+      }
+    } catch {
+      // offline
+    }
+  }
+
+  if (!authSession) {
+    notice = "⚠️ Cannot push to squad: You are in offline mode. Please sign into Supabase to sync workouts.";
+    render();
+    return;
+  }
+
+  try {
+    trainingPlan.updatedAt = new Date().toISOString();
+    await saveTrainingPlan(trainingPlan);
+    await upsertCloudTrainingPlan(authSession.user.id, trainingPlan);
+
+    let customCount = 0;
+    for (const d of trainingPlan.days) {
+      for (const s of d.sections) {
+        for (const it of s.items) {
+          if (it.assignedTo && it.assignedTo !== "all") customCount++;
+        }
+      }
+    }
+
+    notice = `✅ Pushed schedule to Supabase Cloud! Squad athlete devices (including ${customCount} tailored workout${customCount === 1 ? "" : "s"}) will update immediately.`;
+  } catch (err) {
+    notice = `❌ Cloud push failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
   render();
 }
 
@@ -3706,17 +3825,29 @@ async function deleteWorkoutItem(_scope: string, itemId: string): Promise<void> 
   if (found) {
     trainingPlan.updatedAt = new Date().toISOString();
     await saveTrainingPlan(trainingPlan);
-    if (authSession) {
-      const cloudOk = await saveCloudFirst("delete workout item", () =>
-        upsertCloudTrainingPlan(authSession!.user.id, trainingPlan!)
-      );
-      if (!cloudOk) {
-        notice = "Exercise removed locally, but cloud sync failed.";
-        render();
-        return;
+
+    if (!authSession && supabase) {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session) authSession = data.session;
+      } catch {
+        // offline
       }
     }
-    notice = "Exercise removed from training plan and synced to cloud.";
+
+    let cloudSynced = false;
+    if (authSession) {
+      try {
+        await upsertCloudTrainingPlan(authSession.user.id, trainingPlan);
+        cloudSynced = true;
+      } catch (err) {
+        console.error("Cloud sync failed in deleteWorkoutItem:", err);
+      }
+    }
+
+    notice = cloudSynced
+      ? "Exercise removed from training plan and synced to cloud."
+      : "Exercise removed locally (cloud sync offline).";
     render();
   }
 }
@@ -3851,6 +3982,27 @@ function bindAdminView(): void {
         adminTab = tab;
         render();
       }
+    });
+  });
+
+  const pushBtn = document.querySelector<HTMLButtonElement>("#push-schedule-to-cloud-btn");
+  if (pushBtn) {
+    pushBtn.addEventListener("click", async () => {
+      pushBtn.disabled = true;
+      pushBtn.innerHTML = "⏳ Pushing to Squad...";
+      await pushScheduleToCloud();
+      pushBtn.disabled = false;
+      pushBtn.innerHTML = "☁️ Push Schedule to Squad";
+    });
+  }
+
+  qsa<HTMLButtonElement>("[data-push-cloud-now]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.innerHTML = "⏳ Pushing...";
+      await pushScheduleToCloud();
+      btn.disabled = false;
+      btn.innerHTML = "☁️ Push to Cloud";
     });
   });
 
